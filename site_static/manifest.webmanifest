@@ -1,0 +1,15 @@
+{
+  "name": "Insider Alert",
+  "short_name": "Insider Alert",
+  "description": "Daily SEC insider trades and 5% ownership filings.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f141b",
+  "theme_color": "#18202b",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

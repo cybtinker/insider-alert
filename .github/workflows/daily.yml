@@ -1,0 +1,65 @@
+name: Daily insider report
+
+on:
+  schedule:
+    # 02:30 UTC Tue-Sat: after EDGAR's 10pm ET cutoff for the previous business day.
+    - cron: "30 2 * * 2-6"
+    # 13:00 UTC Mon-Fri: morning catch-up for late index updates.
+    - cron: "0 13 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Calendar days to (re)collect"
+        default: "14"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: insider.db
+          key: insider-db-${{ github.run_id }}
+          restore-keys: insider-db-
+      - name: Collect SEC filings
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: python collector.py --days ${{ github.event.inputs.days || '14' }}
+      - name: Save database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: insider.db
+          key: insider-db-${{ github.run_id }}
+      - name: Build site
+        env:
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: python report.py --days 10
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

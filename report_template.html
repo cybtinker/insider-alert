@@ -1,0 +1,399 @@
+<title>Insider Alert</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a filing-desk ledger. Header bar, a one-line tally, the "worth a look" docket, then the full ledger table. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #18202b;
+  --muted: #5d6877;
+  --line: #dde1e7;
+  --accent: #1f4fd1;      /* filing blue */
+  --accent-soft: #e6ecfb;
+  --buy: #0f7a4a;  --buy-soft: #e2f3ea;
+  --sell: #b42c2c; --sell-soft: #f8e5e3;
+  --warn: #9a6200; --warn-soft: #fbf0d9;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --surface: #161d27; --ink: #e5e9ef; --muted: #96a1b0; --line: #273141;
+  --accent: #7ea2ff; --accent-soft: #1c2a4a;
+  --buy: #4cc98b; --buy-soft: #12301f; --sell: #ff7b72; --sell-soft: #3a1a1a;
+  --warn: #e7b04a; --warn-soft: #362810; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d27; --ink: #e5e9ef; --muted: #96a1b0; --line: #273141;
+  --accent: #7ea2ff; --accent-soft: #1c2a4a;
+  --buy: #4cc98b; --buy-soft: #12301f; --sell: #ff7b72; --sell-soft: #3a1a1a;
+  --warn: #e7b04a; --warn-soft: #362810; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.label { font: 600 11px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* header */
+header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-block: 12px; }
+.brand { font: 800 20px/1 var(--f-display); letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
+.brand small { font: 500 12px/1 var(--f-mono); color: var(--muted); letter-spacing: 0; }
+.days { display: flex; gap: 4px; overflow-x: auto; flex: 1 1 260px; min-width: 0; scrollbar-width: thin; }
+.day { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.day[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.actions { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.primary:hover { filter: brightness(1.08); color: var(--surface); }
+
+main { display: grid; gap: 28px; padding-block: 24px 64px; }
+main > section, main > footer { min-width: 0; }
+h1 { font: 700 clamp(22px, 3vw, 28px)/1.15 var(--f-display); margin: 0; text-wrap: balance; }
+h2 { font: 700 17px/1.2 var(--f-display); margin: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.sub { color: var(--muted); font-size: 14px; }
+
+/* tally */
+.tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.tally > div { padding: 14px 16px; display: grid; gap: 6px; border-left: 1px solid var(--line); }
+.tally > div:first-child { border-left: 0; }
+.tally .v { font: 600 22px/1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.tally .v.buy { color: var(--buy); } .tally .v.sell { color: var(--sell); }
+.tally .n { font-size: 13px; color: var(--muted); }
+@media (max-width: 700px) { .tally { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tally > div:nth-child(3) { border-left: 0; } .tally > div:nth-child(n+3) { border-top: 1px solid var(--line); } }
+
+/* docket */
+.docket { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; position: relative; overflow: hidden; }
+.item::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--buy); }
+.item.s::before { background: var(--sell); }
+.item .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tk { font: 700 18px/1 var(--f-display); background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); }
+.tk:hover { color: var(--accent); text-decoration: underline; }
+.item .amt { font: 600 18px/1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.item .amt.buy { color: var(--buy); } .item .amt.sell { color: var(--sell); }
+.who { font-size: 14px; min-width: 0; }
+.link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); font-weight: 600; text-align: left; }
+.link:hover { color: var(--accent); text-decoration: underline; }
+.who .role { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.meta a { color: var(--muted); }
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 20px; color: var(--muted); }
+
+/* filters + table */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.filters input[type=search] { flex: 1 1 220px; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 6px 11px; cursor: pointer; font-size: 13px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.filters select { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--surface); font: 600 11px/1 var(--f-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: pointer; user-select: none; }
+th[aria-sort]::after { content: " ▾"; } th[aria-sort="ascending"]::after { content: " ▴"; }
+td.r, th.r { text-align: right; }
+tbody tr:hover { background: var(--bg); }
+td .issuer { color: var(--muted); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; display: block; }
+.pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--bg); color: var(--muted); }
+.pill.P { background: var(--buy-soft); color: var(--buy); } .pill.S { background: var(--sell-soft); color: var(--sell); }
+.more { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .trades th:nth-child(3), .trades td:nth-child(3), .trades th:nth-child(5), .trades td:nth-child(5),
+  .trades th:nth-child(6), .trades td:nth-child(6), .trades th:nth-child(7), .trades td:nth-child(7), .trades th:nth-child(9), .trades td:nth-child(9) { display: none; }
+  .trades td:nth-child(2) { white-space: normal; min-width: 96px; }
+  th, td { padding: 9px 8px; }
+  td .issuer { max-width: 120px; }
+  .actions { width: 100%; } .actions .btn { flex: 1; }
+}
+/* drawer */
+.scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .35); z-index: 20; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface); z-index: 21; border-left: 1px solid var(--line); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); padding-right: env(safe-area-inset-right, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.drawer .dh { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.drawer .db { overflow: auto; padding: 16px; display: grid; gap: 16px; align-content: start; }
+.drawer table { font-size: 13px; }
+.note { font-size: 12px; color: var(--muted); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 8px; font-size: 14px; z-index: 30; }
+footer { color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: no-preference) { .drawer { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+</style>
+
+<header>
+  <div class="wrap">
+    <div class="brand">Insider Alert <small id="gen"></small></div>
+    <div class="days" id="days" role="group" aria-label="Filing day"></div>
+    <div class="actions">
+      <button class="btn" id="exp-csv" type="button">Export CSV</button>
+      <button class="btn primary" id="exp-pdf" type="button">Export PDF</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <div class="sec-head"><h1 id="headline">Insider filings</h1><span class="sub" id="dayline"></span></div>
+    <div class="tally" id="tally"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Worth a look</h2><span class="sub">Open-market buys, insiders buying together, and very large sales</span></div>
+    <div class="docket" id="docket"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>All trades</h2><span class="sub" id="count"></span></div>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search ticker, company or insider" aria-label="Search">
+      <div class="seg" id="kind" role="group" aria-label="Trade type">
+        <button type="button" data-k="market" aria-pressed="true">Buys &amp; sells</button>
+        <button type="button" data-k="P" aria-pressed="false">Buys</button>
+        <button type="button" data-k="S" aria-pressed="false">Sells</button>
+        <button type="button" data-k="all" aria-pressed="false">Everything</button>
+      </div>
+      <select id="minv" aria-label="Minimum value">
+        <option value="0">Any size</option>
+        <option value="100000" selected>$100K+</option>
+        <option value="1000000">$1M+</option>
+        <option value="10000000">$10M+</option>
+      </select>
+    </div>
+    <div class="tbl">
+      <table class="trades">
+        <thead><tr>
+          <th data-s="ticker">Ticker</th><th data-s="person">Insider</th><th data-s="role">Role</th>
+          <th data-s="type">Type</th><th data-s="date">Trade date</th>
+          <th class="r" data-s="shares">Shares</th><th class="r" data-s="price">Avg price</th>
+          <th class="r" data-s="value" aria-sort="descending">Value</th><th>Filing</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="more" id="more"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>5% ownership filings</h2><span class="sub">Schedule 13D (may push for change) and 13G (passive)</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Company</th><th>Filed by</th><th>Kind</th><th class="r">% of class</th><th>Filing</th></tr></thead>
+      <tbody id="holders"></tbody>
+    </table></div>
+  </section>
+
+  <footer id="foot"></footer>
+</main>
+
+<div id="drawer-root" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+let DATA = /*__DATA__*/null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = v => v == null ? "–" : v >= 1e9 ? "$" + (v/1e9).toFixed(2) + "B" : v >= 1e6 ? "$" + (v/1e6).toFixed(v >= 1e8 ? 0 : 1) + "M" : v >= 1e3 ? "$" + Math.round(v/1e3) + "K" : "$" + Math.round(v);
+const fmtN = v => v == null ? "–" : Math.round(v).toLocaleString("en-US");
+const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"}) : "–";
+
+const S = { day: null, q: "", kind: "market", minv: 100000, sort: "value", dir: -1, limit: 100 };
+try { const k = localStorage.getItem("ia-kind"); if (k) S.kind = k; const m = localStorage.getItem("ia-minv"); if (m) S.minv = +m; } catch (e) {}
+
+function dayTrades() { return DATA.trades.filter(t => t.filed === S.day); }
+function filtered() {
+  const q = S.q.trim().toLowerCase();
+  return dayTrades().filter(t => {
+    if (S.kind === "market" && !(t.code === "P" || t.code === "S")) return false;
+    if ((S.kind === "P" || S.kind === "S") && t.code !== S.kind) return false;
+    if (S.kind !== "all" && t.deriv) return false;
+    if (t.value < S.minv) return false;
+    if (q && !(t.ticker.toLowerCase().includes(q) || t.issuer.toLowerCase().includes(q) || t.person.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => {
+    const x = a[S.sort], y = b[S.sort];
+    if (typeof x === "number" || typeof y === "number") return ((x ?? -1) - (y ?? -1)) * S.dir;
+    return String(x ?? "").localeCompare(String(y ?? "")) * S.dir;
+  });
+}
+
+function renderDays() {
+  $("#days").innerHTML = DATA.days.slice().reverse().map(d =>
+    `<button class="day" type="button" data-d="${d}" aria-pressed="${d === S.day}">${fmtD(d)}</button>`).join("");
+}
+function renderTally() {
+  const ts = dayTrades().filter(t => !t.deriv);
+  const buys = ts.filter(t => t.code === "P"), sells = ts.filter(t => t.code === "S");
+  const sum = a => a.reduce((s, t) => s + t.value, 0);
+  const filings = new Set(dayTrades().map(t => t.acc)).size;
+  const hold = DATA.holders.filter(h => h.filed === S.day).length;
+  $("#headline").textContent = "Insider filings for " + new Date(S.day + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
+  $("#dayline").textContent = "Filed with the SEC on Form 4";
+  $("#tally").innerHTML = `
+    <div><span class="label">Open-market buys</span><span class="v buy">${money(sum(buys))}</span><span class="n">${buys.length} trades</span></div>
+    <div><span class="label">Open-market sales</span><span class="v sell">${money(sum(sells))}</span><span class="n">${sells.length} trades</span></div>
+    <div><span class="label">Form 4 filings</span><span class="v">${fmtN(filings)}</span><span class="n">including grants and exercises</span></div>
+    <div><span class="label">5% ownership filings</span><span class="v">${fmtN(hold)}</span><span class="n">13D and 13G</span></div>`;
+}
+function renderDocket() {
+  const top = dayTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
+  $("#docket").innerHTML = top.length ? top.map(t => `
+    <article class="item ${t.code === "S" ? "s" : ""}">
+      <div class="top"><button class="tk" type="button" data-t="${esc(t.ticker)}">${esc(t.ticker || "—")}</button>
+        <span class="amt ${t.code === "S" ? "sell" : "buy"}">${t.code === "S" ? "−" : "+"}${money(t.value)}</span></div>
+      <div class="who"><button class="link" type="button" data-p="${esc(t.pkey)}">${esc(t.person)}</button> <span class="role">· ${esc(t.role)}</span></div>
+      <div class="sub">${t.code === "S" ? "Sold" : "Bought"} ${fmtN(t.shares)} shares of ${esc(t.issuer)}${t.price ? " at about $" + t.price.toFixed(2) : ""}</div>
+      <div class="chips">${t.why.map(w => `<span class="chip ${/No 10b5|selling/.test(w) ? "warn" : ""}">${esc(w)}</span>`).join("")}</div>
+      <div class="meta"><span>Traded ${fmtD(t.date)}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">SEC filing ↗</a></div>
+    </article>`).join("") : `<div class="empty">Nothing stood out on this day: no open-market buys over $100K and no sales over $10M.</div>`;
+}
+function rowHtml(t, withTicker = true) {
+  return `<tr>
+    ${withTicker ? `<td><button class="link" type="button" data-t="${esc(t.ticker)}">${esc(t.ticker || "—")}</button><span class="issuer" title="${esc(t.issuer)}">${esc(t.issuer)}</span></td>` : ""}
+    <td><button class="link" type="button" data-p="${esc(t.pkey)}">${esc(t.person)}</button></td>
+    <td>${esc(t.role)}</td>
+    <td><span class="pill ${t.code}">${esc(t.type)}${t.deriv ? " (deriv.)" : ""}</span>${t.plan ? ' <span class="note">10b5-1</span>' : ""}</td>
+    <td class="num">${t.date || "–"}</td>
+    <td class="r num">${fmtN(t.shares)}</td>
+    <td class="r num">${t.price ? "$" + t.price.toFixed(2) : "–"}</td>
+    <td class="r num">${money(t.value)}</td>
+    <td><a href="${esc(t.url)}" target="_blank" rel="noopener">View ↗</a></td></tr>`;
+}
+function renderTable() {
+  const rows = filtered();
+  $("#count").textContent = `${fmtN(rows.length)} of ${fmtN(dayTrades().length)} trades shown`;
+  $("#rows").innerHTML = rows.slice(0, S.limit).map(t => rowHtml(t)).join("") ||
+    `<tr><td colspan="9" class="sub">No trades match these filters. Try “Any size” or “Everything”.</td></tr>`;
+  $("#more").innerHTML = rows.length > S.limit
+    ? `<span>Showing the first ${S.limit}. Export includes all ${fmtN(rows.length)}.</span><button class="btn" type="button" id="showmore">Show 200 more</button>` : "";
+  document.querySelectorAll("th[data-s]").forEach(th => {
+    if (th.dataset.s === S.sort) th.setAttribute("aria-sort", S.dir < 0 ? "descending" : "ascending"); else th.removeAttribute("aria-sort");
+  });
+  document.querySelectorAll("#kind button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === S.kind));
+  $("#minv").value = String(S.minv);
+}
+function renderHolders() {
+  const hs = DATA.holders.filter(h => h.filed === S.day);
+  $("#holders").innerHTML = hs.map(h => `<tr>
+    <td>${h.ticker ? `<button class="link" type="button" data-t="${esc(h.ticker)}">${esc(h.ticker)}</button> ` : ""}<span class="sub">${esc(h.issuer)}</span></td>
+    <td>${esc(h.filer)}</td><td>${esc(h.kind)}${h.amend ? " · amended" : ""}</td>
+    <td class="r num">${h.pct != null ? h.pct.toFixed(1) + "%" : "–"}</td>
+    <td><a href="${esc(h.url)}" target="_blank" rel="noopener">View ↗</a></td></tr>`).join("") ||
+    `<tr><td colspan="5" class="sub">No 13D or 13G filings on this day.</td></tr>`;
+}
+function renderAll() { renderDays(); renderTally(); renderDocket(); renderTable(); renderHolders(); }
+
+/* history drawer for a ticker or a person, across every day loaded */
+function openDrawer(kind, key) {
+  const list = DATA.trades.filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
+    .filter(t => !t.deriv).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const first = list[0] || DATA.trades.find(t => kind === "t" ? t.ticker === key : t.pkey === key);
+  const buys = list.filter(t => t.code === "P").reduce((s, t) => s + t.value, 0);
+  const sells = list.filter(t => t.code === "S").reduce((s, t) => s + t.value, 0);
+  const title = kind === "t" ? `${esc(key)} <span class="sub">${esc(first?.issuer || "")}</span>` : `${esc(first?.person || key)} <span class="sub">${esc(first?.role || "")}</span>`;
+  const hold = kind === "t" ? DATA.holders.filter(h => h.ticker === key) : [];
+  const root = $("#drawer-root");
+  root.innerHTML = `<div class="scrim" data-close></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="History">
+      <div class="dh"><div><div class="label">${kind === "t" ? "Ticker history" : "Insider history"} · last ${DATA.days.length} filing days</div><h2 style="margin-top:6px">${title}</h2></div>
+        <button class="btn" type="button" data-close>Close</button></div>
+      <div class="db">
+        <div class="tally" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div><span class="label">Bought</span><span class="v buy">${money(buys)}</span></div>
+          <div><span class="label">Sold</span><span class="v sell">${money(sells)}</span></div></div>
+        <div class="tbl"><table><thead><tr>${kind === "t" ? "" : "<th>Ticker</th>"}<th>Insider</th><th>Role</th><th>Type</th><th>Trade date</th><th class="r">Shares</th><th class="r">Avg price</th><th class="r">Value</th><th>Filing</th></tr></thead>
+          <tbody>${list.map(t => rowHtml(t, kind !== "t")).join("") || `<tr><td colspan="9" class="sub">No trades in this window.</td></tr>`}</tbody></table></div>
+        ${hold.length ? `<div><div class="label" style="margin-bottom:8px">5% ownership filings</div>${hold.map(h => `<div class="sub">${h.filed} · ${esc(h.filer)} · ${esc(h.kind)}${h.pct != null ? " · " + h.pct.toFixed(1) + "%" : ""}</div>`).join("")}</div>` : ""}
+        <p class="note">Covers the ${DATA.days.length} filing days in this report. Older history comes once the database is backfilled.</p>
+      </div></aside>`;
+  root.hidden = false;
+  root.querySelector(".drawer button").focus();
+}
+function closeDrawer() { const r = $("#drawer-root"); r.hidden = true; r.innerHTML = ""; }
+
+/* export */
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 3200); }
+function csvText(rows) {
+  const head = ["filed","trade_date","ticker","issuer","insider","role","type","derivative","shares","avg_price","value_usd","shares_after","10b5_1_plan","sec_link"];
+  const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  return [head.join(",")].concat(rows.map(t => [t.filed, t.date, t.ticker, t.issuer, t.person, t.role, t.type, t.deriv ? "yes" : "", t.shares, t.price, t.value, t.after, t.plan ? "yes" : "", t.url].map(q).join(","))).join("\n");
+}
+async function save(filename, data) {
+  let dl = null;
+  try { dl = await window.claude?.use?.("downloads"); } catch (e) {}
+  if (!dl && !IN_CLAUDE) {
+    // Standalone website: a normal browser download.
+    const blob = new Blob([data], { type: filename.endsWith(".csv") ? "text/csv" : "application/pdf" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast("Saved " + filename); return;
+  }
+  if (!dl) {
+    if (filename.endsWith(".csv")) {
+      try { await navigator.clipboard.writeText(data); toast("Saving isn't available here, so the CSV was copied to your clipboard."); }
+      catch (e) { toast("Saving isn't available in this view. Open the report in claude.ai to export."); }
+    } else toast("Saving isn't available in this view. Open the report in claude.ai to export.");
+    return;
+  }
+  try { await dl.save({ filename, data }); toast("Saved " + filename); }
+  catch (e) { if (e?.code !== "declined") toast("Couldn't save the file (" + (e?.code || "error") + ")."); }
+}
+function exportCsv() { save(`insider-trades-${S.day}.csv`, csvText(filtered())); }
+function exportPdf() {
+  if (!window.jspdf) { toast("The PDF tool didn't load. Check your connection and try again."); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  const day = new Date(S.day + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
+  doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Insider Alert", 40, 46);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(90);
+  doc.text(`Form 4 filings for ${day}. Generated ${DATA.generated}. Source: SEC EDGAR.`, 40, 64);
+  const top = dayTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
+  doc.autoTable({ startY: 80, head: [["Worth a look", "Insider", "Type", "Value", "Why"]],
+    body: top.map(t => [t.ticker + " · " + t.issuer, t.person + " (" + t.role + ")", t.type, money(t.value), t.why.join("; ")]),
+    styles: { fontSize: 8.5, cellPadding: 4 }, headStyles: { fillColor: [31, 79, 209] }, columnStyles: { 0: { cellWidth: 170 }, 1: { cellWidth: 190 } } });
+  const rows = filtered();
+  doc.autoTable({ startY: doc.lastAutoTable.finalY + 20, head: [["Ticker", "Insider", "Role", "Type", "Trade date", "Shares", "Avg price", "Value"]],
+    body: rows.map(t => [t.ticker, t.person, t.role, t.type, t.date || "", fmtN(t.shares), t.price ? "$" + t.price.toFixed(2) : "", money(t.value)]),
+    styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] },
+    columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" } } });
+  save(`insider-alert-${S.day}.pdf`, doc.output("arraybuffer"));
+}
+
+/* events */
+document.addEventListener("click", e => {
+  const d = e.target.closest("[data-d]"); if (d) { S.day = d.dataset.d; S.limit = 100; closeDrawer(); renderAll(); return; }
+  const k = e.target.closest("#kind button"); if (k) { S.kind = k.dataset.k; try { localStorage.setItem("ia-kind", S.kind); } catch (x) {} renderTable(); return; }
+  const th = e.target.closest("th[data-s]"); if (th) { const s = th.dataset.s; S.dir = S.sort === s ? -S.dir : (["value","shares","price","date"].includes(s) ? -1 : 1); S.sort = s; renderTable(); return; }
+  const t = e.target.closest("[data-t]"); if (t && t.dataset.t) { openDrawer("t", t.dataset.t); return; }
+  const p = e.target.closest("[data-p]"); if (p) { openDrawer("p", p.dataset.p); return; }
+  if (e.target.closest("[data-close]")) { closeDrawer(); return; }
+  if (e.target.id === "showmore") { S.limit += 200; renderTable(); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+$("#q").addEventListener("input", e => { S.q = e.target.value; S.limit = 100; renderTable(); });
+$("#minv").addEventListener("change", e => { S.minv = +e.target.value; try { localStorage.setItem("ia-minv", S.minv); } catch (x) {} renderTable(); });
+$("#exp-csv").addEventListener("click", exportCsv);
+$("#exp-pdf").addEventListener("click", exportPdf);
+function start(data) {
+  DATA = data;
+  S.day = DATA.days[DATA.days.length - 1];
+$("#gen").textContent = "updated " + DATA.generated;
+$("#foot").textContent = `Source: SEC EDGAR Form 4, Schedule 13D and 13G. Values are shares × reported price, summed per filing and transaction type. A 10b5-1 tag means the filer ticked the pre-arranged trading plan box. Not investment advice.`;
+renderAll();
+}
+const IN_CLAUDE = !!window.claude;
+if (DATA) start(DATA);
+else fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(start)
+  .catch(() => { $("#headline").textContent = "Couldn't load today's report"; $("#dayline").textContent = "Check your connection and reload the page."; });
+if ("serviceWorker" in navigator && !IN_CLAUDE && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
