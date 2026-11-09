@@ -83,7 +83,7 @@ def load_rows(con, since: str):
         # and keep it out of totals and rankings rather than trusting it.
         suspect = bool(price and price > 20000 and not (r["ticker"] or "").startswith("BRK")) or value > 5e9
         trades.append({
-            "id": r["accession"] + r["code"] + str(r["is_derivative"]),
+            "id": r["accession"] + (r["code"] or "") + str(r["is_derivative"]),
             "acc": r["accession"], "filed": r["filed_date"], "date": r["trans_date"],
             "ticker": r["ticker"] or "", "issuer": r["issuer_name"] or "",
             "person": name, "pkey": (first["owner_cik"] or first["owner_name"]),
