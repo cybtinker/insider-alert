@@ -78,6 +78,10 @@ def load_rows(con, since: str):
             name += f" +{len(os_) - 1}"
         value = r["value"] or 0
         shares = r["shares"] or 0
+        price = value / shares if shares and value else None
+        # Filers sometimes type a price in the wrong unit or currency. Flag it
+        # and keep it out of totals and rankings rather than trusting it.
+        suspect = bool(price and price > 20000 and not (r["ticker"] or "").startswith("BRK")) or value > 5e9
         trades.append({
             "id": r["accession"] + r["code"] + str(r["is_derivative"]),
             "acc": r["accession"], "filed": r["filed_date"], "date": r["trans_date"],
@@ -90,6 +94,7 @@ def load_rows(con, since: str):
             "price": round(value / shares, 2) if shares and value else None,
             "value": round(value), "after": r["shares_after"],
             "plan": bool(r["plan"]), "amend": r["form"] == "4/A", "url": r["url"],
+            "suspect": suspect,
         })
     holders = [dict(r) for r in con.execute(
         """SELECT accession AS acc, form, filed_date AS filed, issuer_name AS issuer,
@@ -111,7 +116,7 @@ def score(trades):
             buyers[t["ticker"]].add(t["pkey"])
     for t in trades:
         s, why = 0, []
-        if t["deriv"]:
+        if t["deriv"] or t["suspect"]:
             t["score"], t["why"] = 0, []
             continue
         v = t["value"]
@@ -158,7 +163,7 @@ def main():
     trades, holders = load_rows(con, days[-1])
     score(trades)
     data = {"days": sorted(days), "trades": trades, "holders": holders,
-            "generated": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+            "generated": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
     os.makedirs(OUT, exist_ok=True)
     tpl = open(os.path.join(HERE, "report_template.html"), encoding="utf-8").read()
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")

@@ -232,7 +232,7 @@ function renderDays() {
     `<button class="day" type="button" data-d="${d}" aria-pressed="${d === S.day}">${fmtD(d)}</button>`).join("");
 }
 function renderTally() {
-  const ts = dayTrades().filter(t => !t.deriv);
+  const ts = dayTrades().filter(t => !t.deriv && !t.suspect);
   const buys = ts.filter(t => t.code === "P"), sells = ts.filter(t => t.code === "S");
   const sum = a => a.reduce((s, t) => s + t.value, 0);
   const filings = new Set(dayTrades().map(t => t.acc)).size;
@@ -266,7 +266,7 @@ function rowHtml(t, withTicker = true) {
     <td class="num">${t.date || "–"}</td>
     <td class="r num">${fmtN(t.shares)}</td>
     <td class="r num">${t.price ? "$" + t.price.toFixed(2) : "–"}</td>
-    <td class="r num">${money(t.value)}</td>
+    <td class="r num">${t.suspect ? '<span class="note" title="The reported price looks like a filing error, so this trade is left out of totals.">check price</span> ' : ""}${money(t.value)}</td>
     <td><a href="${esc(t.url)}" target="_blank" rel="noopener">View ↗</a></td></tr>`;
 }
 function renderTable() {
@@ -298,8 +298,9 @@ function openDrawer(kind, key) {
   const list = DATA.trades.filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
     .filter(t => !t.deriv).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const first = list[0] || DATA.trades.find(t => kind === "t" ? t.ticker === key : t.pkey === key);
-  const buys = list.filter(t => t.code === "P").reduce((s, t) => s + t.value, 0);
-  const sells = list.filter(t => t.code === "S").reduce((s, t) => s + t.value, 0);
+  const ok = list.filter(t => !t.suspect);
+  const buys = ok.filter(t => t.code === "P").reduce((s, t) => s + t.value, 0);
+  const sells = ok.filter(t => t.code === "S").reduce((s, t) => s + t.value, 0);
   const title = kind === "t" ? `${esc(key)} <span class="sub">${esc(first?.issuer || "")}</span>` : `${esc(first?.person || key)} <span class="sub">${esc(first?.role || "")}</span>`;
   const hold = kind === "t" ? DATA.holders.filter(h => h.ticker === key) : [];
   const root = $("#drawer-root");

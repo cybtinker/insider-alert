@@ -128,7 +128,7 @@ def fetch(url: str, retries: int = 4) -> bytes | None:
                 time.sleep(2 ** attempt * 2)
                 continue
             raise
-        except URLError:
+        except (URLError, ConnectionError, TimeoutError):
             if attempt < retries - 1:
                 time.sleep(2 ** attempt * 2)
                 continue
@@ -159,9 +159,10 @@ def load_day_index(day: dt.date) -> list[dict] | None:
         form, company, cik, filed, path = (s.strip() for s in m.groups())
         if form not in FORM4_TYPES and form not in OWNERSHIP_TYPES:
             continue
-        if path in seen:  # each filing is listed once per party
+        acc = accession_of(path)
+        if acc in seen:  # each filing is listed once per party (issuer, insider)
             continue
-        seen.add(path)
+        seen.add(acc)
         rows.append({"form": form, "company": company, "cik": cik,
                      "filed": f"{filed[:4]}-{filed[4:6]}-{filed[6:]}",
                      "path": path})
@@ -266,13 +267,14 @@ def parse_13dg(text: str) -> dict:
     filer = _header_block(head, "FILED BY")
     name = lambda b: (re.search(r"COMPANY CONFORMED NAME:\s*(.+)", b) or [None, None])[1]
     cik = lambda b: (re.search(r"CENTRAL INDEX KEY:\s*(\d+)", b) or [None, None])[1]
-    pct = None
-    m = re.search(r"<(?:\w+:)?percentOfClass>\s*([\d.]+)", text)
-    if m:
+    # 13D uses percentOfClass, 13G uses classPercent; one per reporting person.
+    vals = []
+    for v in re.findall(r"<(?:\w+:)?(?:percentOfClass|classPercent)>\s*([\d.]+)", text):
         try:
-            pct = float(m.group(1))
+            vals.append(float(v))
         except ValueError:
             pass
+    pct = max(vals) if vals else None
     return {"issuer_cik": (cik(subj) or "").lstrip("0") or None,
             "issuer_name": (name(subj) or "").strip() or None,
             "filer": (name(filer) or "").strip() or None,
@@ -311,7 +313,7 @@ def process(row: dict) -> tuple[dict, dict | None]:
 
 def store(con, row, parsed, tickers):
     acc = accession_of(row["path"])
-    now = dt.datetime.utcnow().isoformat(timespec="seconds")
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     if parsed["kind"] == "4":
         owners = parsed.get("owners", [])
         con.execute("INSERT OR REPLACE INTO filings VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -369,7 +371,7 @@ def collect_day(con, day: dt.date, tickers, force=False) -> int:
                     con.commit()
                     print(f"  {done}/{len(todo)}", flush=True)
     con.execute("INSERT OR REPLACE INTO index_days VALUES (?,?,?)",
-                (day.isoformat(), "done", dt.datetime.utcnow().isoformat(timespec="seconds")))
+                (day.isoformat(), "done", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")))
     con.commit()
     return done
 
