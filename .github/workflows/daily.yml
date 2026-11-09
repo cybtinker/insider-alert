@@ -41,6 +41,13 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           INSIDER_DB: ${{ github.workspace }}/insider.db
         run: python collector.py --days ${{ github.event.inputs.days || '14' }}
+      - name: Collect House stock trades
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: |
+          pip install --quiet pdfplumber
+          python congress.py
       - name: Save database
         if: always()
         uses: actions/cache/save@v4

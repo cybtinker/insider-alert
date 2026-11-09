@@ -159,6 +159,37 @@ def score(trades):
     return trades
 
 
+def load_congress(con, since: str) -> dict:
+    """House PTR trades disclosed on or after `since`, one row per trade.
+    Scanned paper filings appear as a single row that links to the PDF."""
+    con.row_factory = sqlite3.Row
+    try:
+        filings = list(con.execute(
+            "SELECT * FROM congress_filings WHERE filed_date >= ? ORDER BY filed_date DESC", (since,)))
+    except sqlite3.OperationalError:
+        return {"trades": [], "since": since}
+    trades = defaultdict(list)
+    for t in con.execute("""SELECT t.* FROM congress_trades t JOIN congress_filings f USING (filing_id)
+                            WHERE f.filed_date >= ? ORDER BY t.seq""", (since,)):
+        trades[t["filing_id"]].append(t)
+    rows = []
+    for f in filings:
+        base = {"member": f["member"], "state": f["state_dst"] or "", "chamber": f["chamber"],
+                "mkey": f"{f['member']}|{(f['state_dst'] or '')[:2]}", "filed": f["filed_date"],
+                "url": f["url"]}
+        if not trades.get(f["filing_id"]):
+            rows.append({**base, "id": f["filing_id"], "paper": True, "tx": "Paper filing",
+                         "asset": "Scanned filing. Open the PDF to read it.", "ticker": "",
+                         "owner": "", "atype": "", "date": None, "lo": None, "hi": None})
+            continue
+        for t in trades[f["filing_id"]]:
+            rows.append({**base, "id": f"{f['filing_id']}-{t['seq']}", "paper": False,
+                         "tx": t["tx_type"], "asset": t["asset"], "ticker": t["ticker"] or "",
+                         "owner": t["owner"], "atype": t["asset_type"] or "",
+                         "date": t["trade_date"], "lo": t["amount_min"], "hi": t["amount_max"]})
+    return {"trades": rows, "since": since}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=65, help="filing days to publish (about 3 months)")
@@ -187,7 +218,10 @@ def main():
     # 1. Single-file preview (Claude artifact): the last few days embedded.
     os.makedirs(OUT, exist_ok=True)
     pdays = days[-a.preview_days:]
-    preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays}}
+    since = (_dt.date.today() - _dt.timedelta(days=400)).isoformat()
+    congress = load_congress(con, since)
+    preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
+               "congress": congress}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
         f.write(tpl.replace("/*__DATA__*/null", blob))
@@ -205,6 +239,8 @@ def main():
         f.write(head + tpl + "\n</body>\n</html>\n")
     with open(os.path.join(site, "index.json"), "w", encoding="utf-8") as f:
         json.dump({"days": days, "generated": generated}, f, separators=(",", ":"))
+    with open(os.path.join(site, "congress.json"), "w", encoding="utf-8") as f:
+        json.dump({**congress, "generated": generated}, f, separators=(",", ":"))
     for d, payload in by_day.items():
         with open(os.path.join(site, "days", f"{d}.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
@@ -219,6 +255,7 @@ def main():
             w.writerow([t["filed"], t["date"], t["ticker"], t["issuer"], t["person"], t["role"],
                         t["type"], t["shares"], t["price"], t["value"], t["after"],
                         "yes" if t["plan"] else "", t["url"]])
+    print(f"{len(congress['trades'])} congressional trade rows since {since}")
     print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days "
           f"({days[0]} to {days[-1]}) -> {site}")
 

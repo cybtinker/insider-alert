@@ -5,6 +5,7 @@ A daily web app of SEC insider trades (Form 4) and 5% ownership filings (Schedul
 ## How it works
 
 - `collector.py` downloads each business day's EDGAR form index, then fetches and parses every Form 4 and 13D/13G into `insider.db` (SQLite). It stays under the SEC's 10 requests per second limit.
+- `congress.py` downloads the House Clerk's yearly disclosure index and parses each e-filed Periodic Transaction Report (PDF) into `congress_trades`. Scanned paper filings are kept as links. The Senate's eFD site refuses automated clients, so senators aren't included.
 - `report.py` ranks the trades (open-market buys, CEO/CFO buys, several insiders buying together, sales over $10M) and builds `site/`: `index.html`, `data.json`, and the install files.
 - `.github/workflows/daily.yml` runs both on GitHub Actions on weekday nights and mornings, and publishes `site/` to GitHub Pages. The database is kept between runs in the Actions cache. If the cache is lost, the next run downloads the recent days again.
 
