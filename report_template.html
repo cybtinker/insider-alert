@@ -44,9 +44,23 @@ header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; backg
 header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-block: 12px; }
 .brand { font: 800 20px/1 var(--f-display); letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
 .brand small { font: 500 12px/1 var(--f-mono); color: var(--muted); letter-spacing: 0; }
-.days { display: flex; gap: 4px; overflow-x: auto; flex: 1 1 260px; min-width: 0; scrollbar-width: thin; }
-.day { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
-.day[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.brand { flex: 1 1 auto; }
+/* controls: watchlist + date range */
+.controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+@media (max-width: 760px) { .controls { grid-template-columns: minmax(0, 1fr); } }
+.ctl { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.symbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; background: var(--bg); min-height: 38px; }
+.symbox:focus-within { border-color: var(--accent); }
+.symbox input { border: 0; background: transparent; outline: none; flex: 1 1 140px; min-width: 0; padding: 3px 4px; text-transform: uppercase; font-family: var(--f-mono); font-size: 14px; }
+.symbox input::placeholder { text-transform: none; font-family: var(--f-body); color: var(--muted); }
+.sym { display: inline-flex; align-items: center; gap: 2px; font: 600 13px/1 var(--f-mono); background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 4px 4px 4px 8px; }
+.sym button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 15px; line-height: 1; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row input[type=date] { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 6px 8px; font-size: 14px; min-width: 0; flex: 1 1 130px; }
+.linkbtn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; font-weight: 600; }
+.preset { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.preset[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.loading { opacity: .55; transition: opacity .15s; }
 .actions { display: flex; gap: 8px; }
 .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; cursor: pointer; font-weight: 600; font-size: 13px; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -133,7 +147,6 @@ footer { color: var(--muted); font-size: 12px; }
 <header>
   <div class="wrap">
     <div class="brand">Insider Alert <small id="gen"></small></div>
-    <div class="days" id="days" role="group" aria-label="Filing day"></div>
     <div class="actions">
       <button class="btn" id="exp-csv" type="button">Export CSV</button>
       <button class="btn primary" id="exp-pdf" type="button">Export PDF</button>
@@ -142,6 +155,24 @@ footer { color: var(--muted); font-size: 12px; }
 </header>
 
 <main class="wrap">
+  <section class="controls" aria-label="What to show">
+    <div class="ctl">
+      <div class="row" style="justify-content:space-between"><label class="label" for="sym-in">Your symbols</label><button class="linkbtn" type="button" id="sym-clear" hidden>Show all symbols</button></div>
+      <div class="symbox" id="symbox"><span id="symchips" class="row" style="gap:6px"></span><input id="sym-in" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Add tickers, e.g. AAPL, MSFT, NVDA" aria-label="Add ticker symbols"></div>
+      <span class="note" id="sym-note">Leave empty to see every symbol. Your list is saved on this device.</span>
+    </div>
+    <div class="ctl">
+      <span class="label">Filing dates</span>
+      <div class="row"><input type="date" id="d-from" aria-label="From date"><span class="sub">to</span><input type="date" id="d-to" aria-label="To date"></div>
+      <div class="row" id="presets">
+        <button class="preset" type="button" data-pr="1">Latest day</button>
+        <button class="preset" type="button" data-pr="5">Last 5 days</button>
+        <button class="preset" type="button" data-pr="21">Last month</button>
+        <button class="preset" type="button" data-pr="63">Last 3 months</button>
+      </div>
+    </div>
+  </section>
+
   <section>
     <div class="sec-head"><h1 id="headline">Insider filings</h1><span class="sub" id="dayline"></span></div>
     <div class="tally" id="tally"></div>
@@ -207,13 +238,28 @@ const money = v => v == null ? "–" : v >= 1e9 ? "$" + (v/1e9).toFixed(2) + "B"
 const fmtN = v => v == null ? "–" : Math.round(v).toLocaleString("en-US");
 const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"}) : "–";
 
-const S = { day: null, q: "", kind: "market", minv: 100000, sort: "value", dir: -1, limit: 100 };
-try { const k = localStorage.getItem("ia-kind"); if (k) S.kind = k; const m = localStorage.getItem("ia-minv"); if (m) S.minv = +m; } catch (e) {}
+const S = { from: null, to: null, syms: [], q: "", kind: "market", minv: 100000, sort: "value", dir: -1, limit: 100 };
+try { const k = localStorage.getItem("ia-kind"); if (k) S.kind = k; const m = localStorage.getItem("ia-minv"); if (m) S.minv = +m;
+      const w = JSON.parse(localStorage.getItem("ia-syms") || "[]"); if (Array.isArray(w)) S.syms = w.slice(0, 200); } catch (e) {}
 
-function dayTrades() { return DATA.trades.filter(t => t.filed === S.day); }
+/* data: an index of available days, then one file per day loaded on demand */
+const CACHE = {};
+async function getDay(d) {
+  if (CACHE[d]) return CACHE[d];
+  if (DATA.byDay) return (CACHE[d] = DATA.byDay[d] || { trades: [], holders: [] });
+  const r = await fetch("days/" + d + ".json", { cache: "no-cache" });
+  if (!r.ok) throw new Error("day " + d);
+  return (CACHE[d] = await r.json());
+}
+const rangeDays = () => DATA.days.filter(d => d >= S.from && d <= S.to);
+const symOk = tk => !S.syms.length || S.syms.includes((tk || "").toUpperCase());
+function allTrades() { return rangeDays().flatMap(d => CACHE[d]?.trades || []); }
+function rangeTrades() { return allTrades().filter(t => symOk(t.ticker)); }
+function rangeHolders() { return rangeDays().flatMap(d => CACHE[d]?.holders || []).filter(h => symOk(h.ticker)); }
+
 function filtered() {
   const q = S.q.trim().toLowerCase();
-  return dayTrades().filter(t => {
+  return rangeTrades().filter(t => {
     if (S.kind === "market" && !(t.code === "P" || t.code === "S")) return false;
     if ((S.kind === "P" || S.kind === "S") && t.code !== S.kind) return false;
     if (S.kind !== "all" && t.deriv) return false;
@@ -227,26 +273,45 @@ function filtered() {
   });
 }
 
-function renderDays() {
-  $("#days").innerHTML = DATA.days.slice().reverse().map(d =>
-    `<button class="day" type="button" data-d="${d}" aria-pressed="${d === S.day}">${fmtD(d)}</button>`).join("");
+const longD = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
+const shortD = (d, yr) => new Date(d + "T12:00:00").toLocaleDateString("en-US", yr ? {month: "short", day: "numeric", year: "numeric"} : {month: "short", day: "numeric"});
+function rangeLabel() { return S.from === S.to ? longD(S.from) : `${shortD(S.from, S.from.slice(0,4) !== S.to.slice(0,4))} to ${shortD(S.to, true)}`; }
+function fileTag() { return (S.from === S.to ? S.from : S.from + "_to_" + S.to) + (S.syms.length && S.syms.length <= 5 ? "_" + S.syms.join("-") : S.syms.length ? "_watchlist" : ""); }
+
+function renderControls() {
+  $("#symchips").innerHTML = S.syms.map(x => `<span class="sym">${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="Remove ${esc(x)}">×</button></span>`).join("");
+  $("#sym-clear").hidden = !S.syms.length;
+  const known = new Set(allTrades().map(t => t.ticker));
+  const missing = S.syms.filter(x => !known.has(x));
+  $("#sym-note").textContent = !S.syms.length ? "Leave empty to see every symbol. Your list is saved on this device."
+    : missing.length ? `No Form 4 trades in these dates for ${missing.join(", ")}.` : `Showing ${S.syms.length} symbol${S.syms.length > 1 ? "s" : ""}. Your list is saved on this device.`;
+  const f = $("#d-from"), t = $("#d-to");
+  f.min = t.min = DATA.days[0]; f.max = t.max = DATA.days[DATA.days.length - 1];
+  f.value = S.from; t.value = S.to;
+  const n = rangeDays().length, last = DATA.days[DATA.days.length - 1];
+  document.querySelectorAll("[data-pr]").forEach(b => {
+    const want = Math.min(+b.dataset.pr, DATA.days.length);
+    b.setAttribute("aria-pressed", S.to === last && n === want);
+    b.hidden = +b.dataset.pr > 1 && DATA.days.length < +b.dataset.pr * 0.6;
+  });
 }
 function renderTally() {
-  const ts = dayTrades().filter(t => !t.deriv && !t.suspect);
+  const rt = rangeTrades();
+  const ts = rt.filter(t => !t.deriv && !t.suspect);
   const buys = ts.filter(t => t.code === "P"), sells = ts.filter(t => t.code === "S");
   const sum = a => a.reduce((s, t) => s + t.value, 0);
-  const filings = new Set(dayTrades().map(t => t.acc)).size;
-  const hold = DATA.holders.filter(h => h.filed === S.day).length;
-  $("#headline").textContent = "Insider filings for " + new Date(S.day + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
-  $("#dayline").textContent = "Filed with the SEC on Form 4";
+  const filings = new Set(rt.map(t => t.acc)).size;
+  const hold = rangeHolders().length;
+  $("#headline").textContent = (S.syms.length ? (S.syms.length <= 4 ? S.syms.join(", ") : "Your " + S.syms.length + " symbols") + ": " : "Insider filings, ") + rangeLabel();
+  $("#dayline").textContent = `${rangeDays().length} filing day${rangeDays().length === 1 ? "" : "s"} · ${S.syms.length ? "your symbols only" : "all symbols"}`;
   $("#tally").innerHTML = `
-    <div><span class="label">Open-market buys</span><span class="v buy">${money(sum(buys))}</span><span class="n">${buys.length} trades</span></div>
-    <div><span class="label">Open-market sales</span><span class="v sell">${money(sum(sells))}</span><span class="n">${sells.length} trades</span></div>
+    <div><span class="label">Open-market buys</span><span class="v buy">${money(sum(buys))}</span><span class="n">${fmtN(buys.length)} trades</span></div>
+    <div><span class="label">Open-market sales</span><span class="v sell">${money(sum(sells))}</span><span class="n">${fmtN(sells.length)} trades</span></div>
     <div><span class="label">Form 4 filings</span><span class="v">${fmtN(filings)}</span><span class="n">including grants and exercises</span></div>
     <div><span class="label">5% ownership filings</span><span class="v">${fmtN(hold)}</span><span class="n">13D and 13G</span></div>`;
 }
 function renderDocket() {
-  const top = dayTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
+  const top = rangeTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
   $("#docket").innerHTML = top.length ? top.map(t => `
     <article class="item ${t.code === "S" ? "s" : ""}">
       <div class="top"><button class="tk" type="button" data-t="${esc(t.ticker)}">${esc(t.ticker || "—")}</button>
@@ -254,8 +319,8 @@ function renderDocket() {
       <div class="who"><button class="link" type="button" data-p="${esc(t.pkey)}">${esc(t.person)}</button> <span class="role">· ${esc(t.role)}</span></div>
       <div class="sub">${t.code === "S" ? "Sold" : "Bought"} ${fmtN(t.shares)} shares of ${esc(t.issuer)}${t.price ? " at about $" + t.price.toFixed(2) : ""}</div>
       <div class="chips">${t.why.map(w => `<span class="chip ${/No 10b5|selling/.test(w) ? "warn" : ""}">${esc(w)}</span>`).join("")}</div>
-      <div class="meta"><span>Traded ${fmtD(t.date)}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">SEC filing ↗</a></div>
-    </article>`).join("") : `<div class="empty">Nothing stood out on this day: no open-market buys over $100K and no sales over $10M.</div>`;
+      <div class="meta"><span>Traded ${fmtD(t.date)} · filed ${fmtD(t.filed)}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">SEC filing ↗</a></div>
+    </article>`).join("") : `<div class="empty">Nothing stood out ${S.syms.length ? "for your symbols " : ""}in these dates: no open-market buys over $100K and no sales over $10M.</div>`;
 }
 function rowHtml(t, withTicker = true) {
   return `<tr>
@@ -271,7 +336,7 @@ function rowHtml(t, withTicker = true) {
 }
 function renderTable() {
   const rows = filtered();
-  $("#count").textContent = `${fmtN(rows.length)} of ${fmtN(dayTrades().length)} trades shown`;
+  $("#count").textContent = `${fmtN(rows.length)} of ${fmtN(rangeTrades().length)} trades shown`;
   $("#rows").innerHTML = rows.slice(0, S.limit).map(t => rowHtml(t)).join("") ||
     `<tr><td colspan="9" class="sub">No trades match these filters. Try “Any size” or “Everything”.</td></tr>`;
   $("#more").innerHTML = rows.length > S.limit
@@ -283,31 +348,57 @@ function renderTable() {
   $("#minv").value = String(S.minv);
 }
 function renderHolders() {
-  const hs = DATA.holders.filter(h => h.filed === S.day);
+  const hs = rangeHolders().sort((a, b) => b.filed.localeCompare(a.filed));
   $("#holders").innerHTML = hs.map(h => `<tr>
     <td>${h.ticker ? `<button class="link" type="button" data-t="${esc(h.ticker)}">${esc(h.ticker)}</button> ` : ""}<span class="sub">${esc(h.issuer)}</span></td>
-    <td>${esc(h.filer)}</td><td>${esc(h.kind)}${h.amend ? " · amended" : ""}</td>
+    <td>${esc(h.filer)}</td><td>${esc(h.kind)}${h.amend ? " · amended" : ""}<span class="issuer">filed ${fmtD(h.filed)}</span></td>
     <td class="r num">${h.pct != null ? h.pct.toFixed(1) + "%" : "–"}</td>
     <td><a href="${esc(h.url)}" target="_blank" rel="noopener">View ↗</a></td></tr>`).join("") ||
-    `<tr><td colspan="5" class="sub">No 13D or 13G filings on this day.</td></tr>`;
+    `<tr><td colspan="5" class="sub">No 13D or 13G filings in these dates.</td></tr>`;
 }
-function renderAll() { renderDays(); renderTally(); renderDocket(); renderTable(); renderHolders(); }
+function renderAll() { renderControls(); renderTally(); renderDocket(); renderTable(); renderHolders(); }
+
+/* load every day in the range, then draw */
+let loadSeq = 0;
+async function apply() {
+  if (S.from > S.to) [S.from, S.to] = [S.to, S.from];
+  const seq = ++loadSeq, need = rangeDays().filter(d => !CACHE[d]);
+  if (need.length) {
+    document.querySelector("main").classList.add("loading");
+    $("#dayline").textContent = `Loading ${need.length} day${need.length > 1 ? "s" : ""}…`;
+    try { for (let i = 0; i < need.length; i += 6) await Promise.all(need.slice(i, i + 6).map(getDay)); }
+    catch (e) { toast("Some days couldn't load. Check your connection and try again."); }
+    if (seq !== loadSeq) return;
+    document.querySelector("main").classList.remove("loading");
+  }
+  S.limit = 100; renderAll();
+}
+function setPreset(n) { const L = DATA.days.length; S.to = DATA.days[L - 1]; S.from = DATA.days[Math.max(0, L - n)]; apply(); }
+function addSyms(text) {
+  const add = text.toUpperCase().split(/[\s,;]+/).map(x => x.replace(/[^A-Z0-9.\-]/g, "")).filter(Boolean);
+  if (!add.length) return;
+  S.syms = [...new Set([...S.syms, ...add])].slice(0, 200);
+  try { localStorage.setItem("ia-syms", JSON.stringify(S.syms)); } catch (e) {}
+  renderAll();
+}
+function setSyms(list) { S.syms = list; try { localStorage.setItem("ia-syms", JSON.stringify(S.syms)); } catch (e) {} renderAll(); }
 
 /* history drawer for a ticker or a person, across every day loaded */
 function openDrawer(kind, key) {
-  const list = DATA.trades.filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
+  const list = allTrades().filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
     .filter(t => !t.deriv).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  const first = list[0] || DATA.trades.find(t => kind === "t" ? t.ticker === key : t.pkey === key);
+  const first = list[0] || allTrades().find(t => kind === "t" ? t.ticker === key : t.pkey === key);
   const ok = list.filter(t => !t.suspect);
   const buys = ok.filter(t => t.code === "P").reduce((s, t) => s + t.value, 0);
   const sells = ok.filter(t => t.code === "S").reduce((s, t) => s + t.value, 0);
+  const watch = kind === "t" ? `<button class="btn" type="button" data-watch="${esc(key)}">${S.syms.includes(key) ? "Remove from my symbols" : "Add to my symbols"}</button>` : "";
   const title = kind === "t" ? `${esc(key)} <span class="sub">${esc(first?.issuer || "")}</span>` : `${esc(first?.person || key)} <span class="sub">${esc(first?.role || "")}</span>`;
-  const hold = kind === "t" ? DATA.holders.filter(h => h.ticker === key) : [];
+  const hold = kind === "t" ? rangeDays().flatMap(d => CACHE[d]?.holders || []).filter(h => h.ticker === key) : [];
   const root = $("#drawer-root");
   root.innerHTML = `<div class="scrim" data-close></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="History">
-      <div class="dh"><div><div class="label">${kind === "t" ? "Ticker history" : "Insider history"} · last ${DATA.days.length} filing days</div><h2 style="margin-top:6px">${title}</h2></div>
-        <button class="btn" type="button" data-close>Close</button></div>
+      <div class="dh"><div><div class="label">${kind === "t" ? "Ticker history" : "Insider history"} · ${esc(rangeLabel())}</div><h2 style="margin-top:6px">${title}</h2></div>
+        <div class="row" style="justify-content:flex-end">${watch}<button class="btn" type="button" data-close>Close</button></div></div>
       <div class="db">
         <div class="tally" style="grid-template-columns:repeat(2,minmax(0,1fr))">
           <div><span class="label">Bought</span><span class="v buy">${money(buys)}</span></div>
@@ -315,7 +406,7 @@ function openDrawer(kind, key) {
         <div class="tbl"><table><thead><tr>${kind === "t" ? "" : "<th>Ticker</th>"}<th>Insider</th><th>Role</th><th>Type</th><th>Trade date</th><th class="r">Shares</th><th class="r">Avg price</th><th class="r">Value</th><th>Filing</th></tr></thead>
           <tbody>${list.map(t => rowHtml(t, kind !== "t")).join("") || `<tr><td colspan="9" class="sub">No trades in this window.</td></tr>`}</tbody></table></div>
         ${hold.length ? `<div><div class="label" style="margin-bottom:8px">5% ownership filings</div>${hold.map(h => `<div class="sub">${h.filed} · ${esc(h.filer)} · ${esc(h.kind)}${h.pct != null ? " · " + h.pct.toFixed(1) + "%" : ""}</div>`).join("")}</div>` : ""}
-        <p class="note">Covers the ${DATA.days.length} filing days in this report. Older history comes once the database is backfilled.</p>
+        <p class="note">Covers the filing dates you picked. Widen the dates to see more history.</p>
       </div></aside>`;
   root.hidden = false;
   root.querySelector(".drawer button").focus();
@@ -349,17 +440,17 @@ async function save(filename, data) {
   try { await dl.save({ filename, data }); toast("Saved " + filename); }
   catch (e) { if (e?.code !== "declined") toast("Couldn't save the file (" + (e?.code || "error") + ")."); }
 }
-function exportCsv() { save(`insider-trades-${S.day}.csv`, csvText(filtered())); }
+function exportCsv() { save(`insider-trades-${fileTag()}.csv`, csvText(filtered())); }
 function exportPdf() {
   if (!window.jspdf) { toast("The PDF tool didn't load. Check your connection and try again."); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
-  const day = new Date(S.day + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
+  const day = rangeLabel() + (S.syms.length ? " · symbols: " + S.syms.join(", ") : " · all symbols");
   doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Insider Alert", 40, 46);
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(90);
-  doc.text(`Form 4 filings for ${day}. Generated ${DATA.generated}. Source: SEC EDGAR.`, 40, 64);
-  const top = dayTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
-  doc.autoTable({ startY: 80, head: [["Worth a look", "Insider", "Type", "Value", "Why"]],
+  doc.text(doc.splitTextToSize(`Form 4 filings, ${day}. Generated ${DATA.generated}. Source: SEC EDGAR.`, 710), 40, 64);
+  const top = rangeTrades().filter(t => t.score >= 40).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 12);
+  doc.autoTable({ startY: 92, head: [["Worth a look", "Insider", "Type", "Value", "Why"]],
     body: top.map(t => [t.ticker + " · " + t.issuer, t.person + " (" + t.role + ")", t.type, money(t.value), t.why.join("; ")]),
     styles: { fontSize: 8.5, cellPadding: 4 }, headStyles: { fillColor: [31, 79, 209] }, columnStyles: { 0: { cellWidth: 170 }, 1: { cellWidth: 190 } } });
   const rows = filtered();
@@ -367,12 +458,16 @@ function exportPdf() {
     body: rows.map(t => [t.ticker, t.person, t.role, t.type, t.date || "", fmtN(t.shares), t.price ? "$" + t.price.toFixed(2) : "", money(t.value)]),
     styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] },
     columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" } } });
-  save(`insider-alert-${S.day}.pdf`, doc.output("arraybuffer"));
+  save(`insider-alert-${fileTag()}.pdf`, doc.output("arraybuffer"));
 }
 
 /* events */
 document.addEventListener("click", e => {
-  const d = e.target.closest("[data-d]"); if (d) { S.day = d.dataset.d; S.limit = 100; closeDrawer(); renderAll(); return; }
+  const pr = e.target.closest("[data-pr]"); if (pr) { setPreset(+pr.dataset.pr); return; }
+  const rm = e.target.closest("[data-rm]"); if (rm) { setSyms(S.syms.filter(x => x !== rm.dataset.rm)); return; }
+  const w = e.target.closest("[data-watch]"); if (w) { const k = w.dataset.watch; setSyms(S.syms.includes(k) ? S.syms.filter(x => x !== k) : [...S.syms, k]); w.textContent = S.syms.includes(k) ? "Remove from my symbols" : "Add to my symbols"; return; }
+  if (e.target.id === "sym-clear") { setSyms([]); return; }
+  if (e.target.closest("#symbox") && e.target.tagName !== "BUTTON") $("#sym-in").focus();
   const k = e.target.closest("#kind button"); if (k) { S.kind = k.dataset.k; try { localStorage.setItem("ia-kind", S.kind); } catch (x) {} renderTable(); return; }
   const th = e.target.closest("th[data-s]"); if (th) { const s = th.dataset.s; S.dir = S.sort === s ? -S.dir : (["value","shares","price","date"].includes(s) ? -1 : 1); S.sort = s; renderTable(); return; }
   const t = e.target.closest("[data-t]"); if (t && t.dataset.t) { openDrawer("t", t.dataset.t); return; }
@@ -383,18 +478,29 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 $("#q").addEventListener("input", e => { S.q = e.target.value; S.limit = 100; renderTable(); });
 $("#minv").addEventListener("change", e => { S.minv = +e.target.value; try { localStorage.setItem("ia-minv", S.minv); } catch (x) {} renderTable(); });
+$("#sym-in").addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === "," || e.key === " ") { e.preventDefault(); addSyms(e.target.value); e.target.value = ""; }
+  else if (e.key === "Backspace" && !e.target.value && S.syms.length) setSyms(S.syms.slice(0, -1));
+});
+$("#sym-in").addEventListener("blur", e => { if (e.target.value.trim()) { addSyms(e.target.value); e.target.value = ""; } });
+$("#sym-in").addEventListener("paste", e => { const t = (e.clipboardData || window.clipboardData)?.getData("text"); if (t && /[\s,;]/.test(t.trim())) { e.preventDefault(); addSyms(t); } });
+$("#d-from").addEventListener("change", e => { if (e.target.value) { S.from = snap(e.target.value, 1); apply(); } });
+$("#d-to").addEventListener("change", e => { if (e.target.value) { S.to = snap(e.target.value, -1); apply(); } });
+/* move a picked calendar date onto the nearest filing day inside the range */
+function snap(d, dir) { const ds = DATA.days; if (dir > 0) return ds.find(x => x >= d) || ds[ds.length - 1]; for (let i = ds.length - 1; i >= 0; i--) if (ds[i] <= d) return ds[i]; return ds[0]; }
 $("#exp-csv").addEventListener("click", exportCsv);
 $("#exp-pdf").addEventListener("click", exportPdf);
 function start(data) {
   DATA = data;
-  S.day = DATA.days[DATA.days.length - 1];
+  S.to = DATA.days[DATA.days.length - 1];
+  S.from = S.to;
 $("#gen").textContent = "updated " + DATA.generated;
 $("#foot").textContent = `Source: SEC EDGAR Form 4, Schedule 13D and 13G. Values are shares × reported price, summed per filing and transaction type. A 10b5-1 tag means the filer ticked the pre-arranged trading plan box. Not investment advice.`;
-renderAll();
+apply();
 }
 const IN_CLAUDE = !!window.claude;
 if (DATA) start(DATA);
-else fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(start)
+else fetch("index.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(start)
   .catch(() => { $("#headline").textContent = "Couldn't load today's report"; $("#dayline").textContent = "Check your connection and reload the page."; });
 if ("serviceWorker" in navigator && !IN_CLAUDE && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>

@@ -13,7 +13,7 @@ A daily web app of SEC insider trades (Form 4) and 5% ownership filings (Schedul
 1. Settings → Pages → Source: **GitHub Actions**.
 2. Settings → Secrets and variables → Actions → Secrets → New repository secret (a secret, so it stays out of the public run logs):
    `SEC_USER_AGENT` = `InsiderAlert your-email@example.com` (the SEC requires a contact email).
-3. Actions → Daily insider report → Run workflow (the first run backfills about two weeks).
+3. Actions → Daily insider report → Run workflow (the first run backfills about two weeks; run it once with days = 95 to fill three months).
 
 ## Run locally
 

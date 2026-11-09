@@ -3,7 +3,7 @@
 Reads insider.db (filled by collector.py) and writes:
   out/insider-alert.html   one self-contained report page
   out/trades-YYYY-MM-DD.csv the latest day's trades
-  site/                     the installable website (index.html + data.json)
+  site/                     the installable website (index.html, index.json, days/*.json)
 
 Usage: python report.py [--days 10]
 """
@@ -110,10 +110,18 @@ def load_rows(con, since: str):
 
 def score(trades):
     """Flag trades worth a look and explain why."""
-    buyers = defaultdict(set)   # ticker -> people buying in the window
+    # Cluster buying: distinct insiders buying the same ticker in the 14
+    # calendar days up to each filing.
+    import datetime as _dt
+    buys = defaultdict(list)    # ticker -> [(filed, person)]
     for t in trades:
-        if t["code"] == "P" and not t["deriv"] and t["ticker"]:
-            buyers[t["ticker"]].add(t["pkey"])
+        if t["code"] == "P" and not t["deriv"] and t["ticker"] and t["value"] >= 25_000:
+            buys[t["ticker"]].append((t["filed"], t["pkey"]))
+
+    def cluster(t):
+        end = t["filed"]
+        start = (_dt.date.fromisoformat(end) - _dt.timedelta(days=14)).isoformat()
+        return len({p for f, p in buys.get(t["ticker"], ()) if start <= f <= end})
     for t in trades:
         s, why = 0, []
         if t["deriv"] or t["suspect"]:
@@ -130,7 +138,7 @@ def score(trades):
             if v >= 1_000_000:
                 s += 20
                 why.append("Over $1M")
-            n = len(buyers.get(t["ticker"], ()))
+            n = cluster(t)
             if n >= 2:
                 s += 25
                 why.append(f"Cluster: {n} insiders buying")
@@ -153,27 +161,41 @@ def score(trades):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=10, help="business days of history to embed")
+    ap.add_argument("--days", type=int, default=65, help="filing days to publish (about 3 months)")
+    ap.add_argument("--preview-days", type=int, default=10, help="days embedded in the single-file preview")
     a = ap.parse_args()
+    import datetime as _dt
+    import shutil
     con = sqlite3.connect(DB_PATH)
-    days = [r[0] for r in con.execute(
-        "SELECT DISTINCT filed_date FROM filings ORDER BY filed_date DESC LIMIT ?", (a.days,))]
+    days = sorted(r[0] for r in con.execute(
+        "SELECT DISTINCT filed_date FROM filings WHERE filed_date IN (SELECT day FROM index_days) "
+        "ORDER BY filed_date DESC LIMIT ?", (a.days,)))
     if not days:
         raise SystemExit("No filings in the database yet. Run collector.py first.")
-    trades, holders = load_rows(con, days[-1])
+    trades, holders = load_rows(con, days[0])
     score(trades)
-    data = {"days": sorted(days), "trades": trades, "holders": holders,
-            "generated": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
-    os.makedirs(OUT, exist_ok=True)
+    by_day = {d: {"trades": [], "holders": []} for d in days}
+    for t in trades:
+        if t["filed"] in by_day:
+            by_day[t["filed"]]["trades"].append(t)
+    for h in holders:
+        if h["filed"] in by_day:
+            by_day[h["filed"]]["holders"].append(h)
+    generated = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     tpl = open(os.path.join(HERE, "report_template.html"), encoding="utf-8").read()
-    blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-    html = tpl.replace("/*__DATA__*/null", blob)
+
+    # 1. Single-file preview (Claude artifact): the last few days embedded.
+    os.makedirs(OUT, exist_ok=True)
+    pdays = days[-a.preview_days:]
+    preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays}}
+    blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
-        f.write(html)
-    # Standalone website (GitHub Pages): shell + data.json + PWA files.
-    import shutil
+        f.write(tpl.replace("/*__DATA__*/null", blob))
+
+    # 2. Website (GitHub Pages): shell, index.json, one JSON file per day, PWA files.
     site = os.path.join(HERE, "site")
-    os.makedirs(site, exist_ok=True)
+    shutil.rmtree(site, ignore_errors=True)
+    os.makedirs(os.path.join(site, "days"))
     static = os.path.join(HERE, "site_static")
     for name in os.listdir(static):
         if name != "head.html":
@@ -181,18 +203,24 @@ def main():
     head = open(os.path.join(static, "head.html"), encoding="utf-8").read()
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as f:
         f.write(head + tpl + "\n</body>\n</html>\n")
-    with open(os.path.join(site, "data.json"), "w", encoding="utf-8") as f:
-        f.write(json.dumps(data, separators=(",", ":")))
-    latest = days[0]
+    with open(os.path.join(site, "index.json"), "w", encoding="utf-8") as f:
+        json.dump({"days": days, "generated": generated}, f, separators=(",", ":"))
+    for d, payload in by_day.items():
+        with open(os.path.join(site, "days", f"{d}.json"), "w", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"))
+
+    # 3. CSV of the latest day.
+    latest = days[-1]
     with open(os.path.join(OUT, f"trades-{latest}.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["filed", "trade_date", "ticker", "issuer", "insider", "role", "type",
                     "shares", "avg_price", "value_usd", "shares_after", "10b5_1_plan", "sec_link"])
-        for t in sorted((t for t in trades if t["filed"] == latest), key=lambda t: -t["value"]):
+        for t in sorted(by_day[latest]["trades"], key=lambda t: -t["value"]):
             w.writerow([t["filed"], t["date"], t["ticker"], t["issuer"], t["person"], t["role"],
                         t["type"], t["shares"], t["price"], t["value"], t["after"],
                         "yes" if t["plan"] else "", t["url"]])
-    print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days -> {OUT}")
+    print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days "
+          f"({days[0]} to {days[-1]}) -> {site}")
 
 
 if __name__ == "__main__":
