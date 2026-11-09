@@ -148,7 +148,12 @@ def quarter(d: dt.date) -> int:
 def load_day_index(day: dt.date) -> list[dict] | None:
     url = (f"{ARCHIVES}edgar/daily-index/{day.year}/QTR{quarter(day)}/"
            f"form.{day:%Y%m%d}.idx")
-    raw = fetch(url)
+    try:
+        raw = fetch(url, retries=2)
+    except HTTPError as e:
+        if e.code == 403:  # EDGAR answers 403 for an index that isn't published yet
+            return None
+        raise
     if raw is None:
         return None  # weekend / holiday
     rows, seen = [], set()
@@ -349,7 +354,7 @@ def collect_day(con, day: dt.date, tickers, force=False) -> int:
         return 0
     rows = load_day_index(day)
     if rows is None:
-        print(f"{day}: no index (weekend/holiday)")
+        print(f"{day}: no index yet (holiday, or not published)")
         return 0
     have = {r[0] for r in con.execute("SELECT accession FROM filings WHERE filed_date=?",
                                        (day.isoformat(),))}
