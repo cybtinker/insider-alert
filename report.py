@@ -187,7 +187,34 @@ def load_congress(con, since: str) -> dict:
                          "tx": t["tx_type"], "asset": t["asset"], "ticker": t["ticker"] or "",
                          "owner": t["owner"], "atype": t["asset_type"] or "",
                          "date": t["trade_date"], "lo": t["amount_min"], "hi": t["amount_max"]})
+    rows += load_senate(since)
+    rows.sort(key=lambda r: r["filed"] or "", reverse=True)
     return {"trades": rows, "since": since}
+
+
+def load_senate(since: str) -> list[dict]:
+    """Senate PTRs that senate.py (run on a home PC) pushed to data/senate.json."""
+    path = os.path.join(HERE, "data", "senate.json")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        reports = json.load(f).get("reports", {})
+    rows = []
+    for rid, r in reports.items():
+        if not r.get("filed") or r["filed"] < since:
+            continue
+        base = {"member": r["member"], "state": "", "chamber": "Senate",
+                "mkey": f"{r['member']}|Senate", "filed": r["filed"], "url": r["url"]}
+        if r.get("paper") or not r.get("trades"):
+            rows.append({**base, "id": "S" + rid, "paper": True, "tx": "Paper filing",
+                         "asset": "Scanned filing. Open it to read it.", "ticker": "", "owner": "",
+                         "atype": "", "date": None, "lo": None, "hi": None})
+            continue
+        for t in r["trades"]:
+            rows.append({**base, "id": f"S{rid}-{t['seq']}", "paper": False, "tx": t["tx"],
+                         "asset": t["asset"], "ticker": t["ticker"], "owner": t["owner"],
+                         "atype": t["atype"], "date": t["date"], "lo": t["lo"], "hi": t["hi"]})
+    return rows
 
 
 def main():

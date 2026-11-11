@@ -248,7 +248,7 @@ footer { color: var(--muted); font-size: 12px; }
   <section class="controls" aria-label="Congress filters">
     <div class="ctl">
       <label class="label" for="c-q">Find members, tickers or companies</label>
-      <input type="search" id="c-q" class="cq" placeholder="e.g. Pelosi, TX, NVDA" autocomplete="off" style="border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px;min-width:0">
+      <input type="search" id="c-q" class="cq" placeholder="e.g. Pelosi, TX, Senate, NVDA" autocomplete="off" style="border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px;min-width:0">
       <div class="sugg" id="c-sugg"></div>
       <div class="row" id="c-follows"></div>
     </div>
@@ -556,7 +556,7 @@ function loadCongress() {
     .then(d => C.data = d).catch(() => { C.loading = null; toast("Couldn't load Congress trades. Check your connection."); return null; });
 }
 const amt = t => t.lo == null ? "–" : t.hi ? `${money(t.lo)}–${money(t.hi)}` : `Over ${money(t.lo)}`;
-const mlabel = t => `${t.member}${t.state ? " (" + t.state.slice(0, 2) + ")" : ""}`;
+const mlabel = t => `${t.chamber === "Senate" ? "Sen. " : ""}${t.member}${t.state ? " (" + t.state.slice(0, 2) + ")" : ""}`;
 function cSince() { const d = new Date(); d.setDate(d.getDate() - C.days); return d.toISOString().slice(0, 10); }
 function cRange() { const since = cSince(); return (C.data?.trades || []).filter(t => t.filed >= since); }
 function cRows() {
@@ -566,7 +566,7 @@ function cRows() {
     if (C.tx === "Buy" && t.tx !== "Buy") return false;
     if (C.tx === "Sell" && !/Sell|Partial/.test(t.tx)) return false;
     if (C.mine && S.syms.length && !S.syms.includes(t.ticker)) return false;
-    if (q && !(t.member.toLowerCase().includes(q) || t.state.toLowerCase().startsWith(q) || t.ticker.toLowerCase() === q || (t.asset || "").toLowerCase().includes(q))) return false;
+    if (q && !(t.member.toLowerCase().includes(q) || (t.state && t.state.toLowerCase().startsWith(q)) || (q === "senate" && t.chamber === "Senate") || t.ticker.toLowerCase() === q || (t.asset || "").toLowerCase().includes(q))) return false;
     return true;
   }).sort((a, b) => b.filed.localeCompare(a.filed) || (b.date || "").localeCompare(a.date || ""));
 }
@@ -600,8 +600,8 @@ function cRowHtml(t, withMember = true) {
 function renderCongress() {
   if (!C.data) { $("#c-line").textContent = "Loading…"; return; }
   const ms = members(), q = C.q.trim().toLowerCase();
-  const sugg = q.length >= 2 ? [...ms.values()].filter(m => m.name.toLowerCase().includes(q) || m.state.toLowerCase().startsWith(q)).sort((a, b) => b.n - a.n).slice(0, 6) : [];
-  $("#c-sugg").innerHTML = sugg.map(m => `<div class="m"><span><button class="link" type="button" data-m="${esc(m.key)}">${esc(m.name)}</button> <span class="note">${esc(m.state)} · ${m.n} trades</span></span>${followBtn(m.key)}</div>`).join("");
+  const sugg = q.length >= 2 ? [...ms.values()].filter(m => m.name.toLowerCase().includes(q) || (m.state && m.state.toLowerCase().startsWith(q)) || (q === "senate" && m.key.endsWith("|Senate"))).sort((a, b) => b.n - a.n).slice(0, 6) : [];
+  $("#c-sugg").innerHTML = sugg.map(m => `<div class="m"><span><button class="link" type="button" data-m="${esc(m.key)}">${esc(m.name)}</button> <span class="note">${esc(m.state || (m.key.endsWith("|Senate") ? "Senate" : ""))} · ${m.n} trades</span></span>${followBtn(m.key)}</div>`).join("");
   $("#c-follows").innerHTML = C.follow.length ? C.follow.map(k => `<span class="sym" style="font-family:var(--f-body)">${esc(k.split("|")[0])}<button type="button" data-unfollow="${esc(k)}" aria-label="Stop following ${esc(k.split("|")[0])}">×</button></span>`).join("")
     : `<span class="note">Search a name and tap Follow to keep an eye on that member.</span>`;
   document.querySelectorAll("[data-cd]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.cd === C.days));
@@ -613,7 +613,10 @@ function renderCongress() {
   const buys = real.filter(t => t.tx === "Buy"), sells = real.filter(t => /Sell|Partial/.test(t.tx));
   const who = C.show === "follow" ? "People you follow" : "Congress stock trades";
   $("#c-headline").textContent = `${who}, last ${C.days >= 365 ? "year" : C.days >= 180 ? "6 months" : C.days + " days"}`;
-  $("#c-line").textContent = "House of Representatives · by disclosure date";
+  const hasSen = (C.data.trades || []).some(t => t.chamber === "Senate");
+  $("#c-line").textContent = (hasSen ? "House and Senate" : "House of Representatives") + " · by disclosure date";
+  $("#c-note").textContent = hasSen ? "Members report trades up to 45 days after making them, in dollar ranges rather than exact amounts. Senate trades are refreshed from a home computer, so they can lag a day or two."
+    : "House members only for now. Members report trades up to 45 days after making them, in dollar ranges rather than exact amounts.";
   $("#c-tally").innerHTML = `
     <div><span class="label">Buys</span><span class="v buy">${fmtN(buys.length)}</span><span class="n">up to ${money(buys.reduce((s, t) => s + (t.hi || t.lo || 0), 0))}</span></div>
     <div><span class="label">Sales</span><span class="v sell">${fmtN(sells.length)}</span><span class="n">up to ${money(sells.reduce((s, t) => s + (t.hi || t.lo || 0), 0))}</span></div>
@@ -647,7 +650,7 @@ function openMember(key) {
   const root = $("#drawer-root");
   root.innerHTML = `<div class="scrim" data-close></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="Member trades">
-      <div class="dh"><div><div class="label">Member of Congress · last 13 months</div><h2 style="margin-top:6px">${esc(key.split("|")[0])} <span class="sub">${esc(list[0]?.state || "")}</span></h2></div>
+      <div class="dh"><div><div class="label">${key.endsWith("|Senate") ? "Senator" : "House member"} · last 13 months</div><h2 style="margin-top:6px">${esc(key.split("|")[0])} <span class="sub">${esc(list[0]?.state || "")}</span></h2></div>
         <div class="row" style="justify-content:flex-end">${followBtn(key)}<button class="btn" type="button" data-close>Close</button></div></div>
       <div class="db">
         <div class="tally" style="grid-template-columns:repeat(3,minmax(0,1fr))">
@@ -669,7 +672,7 @@ function congressPdf() {
   const { jsPDF } = window.jspdf, doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
   doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Insider Alert · Congress", 40, 46);
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(90);
-  doc.text(`${$("#c-headline").textContent}. House PTRs. Generated ${DATA.generated}.`, 40, 64);
+  doc.text(`${$("#c-headline").textContent}. STOCK Act filings. Generated ${DATA.generated}.`, 40, 64);
   doc.autoTable({ startY: 80, head: [["Disclosed", "Member", "Ticker", "Asset", "Type", "Amount", "Traded", "Owner"]],
     body: cRows().map(t => [t.filed, mlabel(t), t.ticker, t.asset, t.tx, amt(t), t.date || "", t.owner]),
     styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] }, columnStyles: { 3: { cellWidth: 220 } } });

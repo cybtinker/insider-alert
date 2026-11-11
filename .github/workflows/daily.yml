@@ -6,6 +6,10 @@ on:
     - cron: "30 2 * * 2-6"
     # 13:00 UTC Mon-Fri: morning catch-up for late index updates.
     - cron: "0 13 * * 1-5"
+  # Senate trades arrive from a home PC (senate.py); rebuild when they do.
+  push:
+    branches: [main]
+    paths: ["data/senate.json"]
   workflow_dispatch:
     inputs:
       days:
