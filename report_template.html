@@ -181,6 +181,15 @@ td .issuer { color: var(--muted); font-size: 12px; max-width: 220px; overflow: h
 .lk.trade.buy { stroke: var(--buy); } .lk.trade.sell { stroke: var(--sell); } .lk.trade.mixed { stroke: var(--muted); }
 .lk.trade { stroke-opacity: .45; }
 .lk.oversees { stroke: var(--warn); stroke-dasharray: 2 5; stroke-width: 2; stroke-opacity: .9; }
+.lk-date { font: 600 10px/1 var(--f-mono); fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
+.tl { display: block; width: 100%; }
+.tl .row-l { font: 600 12px/1 var(--f-body); fill: var(--ink); }
+.tl .row-s { font: 400 11px/1 var(--f-body); fill: var(--muted); }
+.tl .grid line { stroke: var(--line); } .tl .grid path { display: none; } .tl .grid text { fill: var(--muted); font: 11px var(--f-mono); }
+.tl .band { fill: var(--bg); }
+.tl .dot { cursor: pointer; stroke: var(--surface); stroke-width: 1.5; }
+.tl .dot.buy { fill: var(--buy); } .tl .dot.sell { fill: var(--sell); } .tl .dot.gift { fill: var(--accent); }
+.tl .dot.on { stroke: var(--ink); stroke-width: 2.5; }
 .lk-hit { stroke: transparent; stroke-width: 16; cursor: pointer; fill: none; }
 .lk.overlap { stroke: var(--ink); stroke-opacity: .7; stroke-dasharray: 8 4; }
 .lk.donation { stroke: var(--accent); stroke-opacity: .85; }
@@ -410,6 +419,12 @@ footer { color: var(--muted); font-size: 12px; }
       <div class="net-tip" id="n-tip" hidden></div>
       <div class="net-empty" id="n-empty" hidden></div>
     </div>
+  </section>
+
+  <section id="n-time-sec">
+    <div class="sec-head"><h2 id="n-time-h">Timeline</h2><span class="sub" id="n-time-sub">Pick a person or stock above to see when each trade happened</span></div>
+    <div class="tbl" id="n-time-box" hidden><svg id="n-time" class="tl"></svg><div class="more" id="n-time-more"></div></div>
+    <p class="note" id="n-time-note" style="margin:6px 0 0"></p>
   </section>
 
   <section>
@@ -1050,7 +1065,7 @@ function drawNetwork(G) {
   svg.selectAll("*").remove();
   svg.attr("viewBox", [-W / 2, -H / 2, W, H]);
   const g = svg.append("g"); N.g = g;
-  N.zoom = d3.zoom().scaleExtent([0.2, 6]).on("zoom", ev => g.attr("transform", ev.transform));
+  N.zoom = d3.zoom().scaleExtent([0.2, 6]).on("zoom", ev => { g.attr("transform", ev.transform); N.zoomK = ev.transform.k; placeLabels(); });
   svg.call(N.zoom).on("dblclick.zoom", null);
   svg.on("click", ev => { if (ev.target === svg.node()) { setFocus(null); N.tipPinned = false; $("#n-tip").hidden = true; } });
   const size = n => n.kind === "company" ? 90 + 40 * Math.sqrt(n.deg) : 60 + 45 * Math.sqrt(n.deg);
@@ -1061,6 +1076,7 @@ function drawNetwork(G) {
   const link = g.append("g").selectAll("line").data(G.links).join("line")
     .attr("class", e => `lk ${e.kind} ${e.dir || ""}`)
     .attr("stroke-width", e => e.kind === "oversees" ? 2 : e.kind === "donation" ? 2 + Math.min(Math.sqrt(e.w), 3) : e.kind === "overlap" ? 1.5 + Math.min(e.w, 4) : 1 + Math.min(Math.sqrt(e.w), 3));
+  N.dl = g.append("g");
   const hit = g.append("g").selectAll("line").data(G.links).join("line").attr("class", "lk-hit")
     .on("mouseenter", (ev, e) => lineTip(ev, e)).on("mousemove", (ev, e) => lineTip(ev, e)).on("mouseleave", () => { if (!N.tipPinned) $("#n-tip").hidden = true; })
     .on("click", (ev, e) => { ev.stopPropagation(); N.tipPinned = true; lineTip(ev, e); });
@@ -1083,6 +1099,7 @@ function drawNetwork(G) {
     .force("collide", d3.forceCollide(n => radius(n) + 6))
     .force("x", d3.forceX().strength(0.04)).force("y", d3.forceY().strength(0.06))
     .on("tick", () => {
+      placeLabels();
       hit.attr("x1", e => e.source.x).attr("y1", e => e.source.y).attr("x2", e => e.target.x).attr("y2", e => e.target.y);
       link.attr("x1", e => e.source.x).attr("y1", e => e.source.y).attr("x2", e => e.target.x).attr("y2", e => e.target.y);
       node.attr("transform", n => `translate(${n.x},${n.y})`);
@@ -1152,10 +1169,123 @@ function setFocus(id, quiet) {
   N.g.selectAll(".lk-hit").classed("on", e => !!id && (e.source.id === id || e.target.id === id));
   N.g.selectAll(".nd").classed("on", n => near.has(n.id)).classed("hl", n => n.id === id)
     .select("text").text(n => n.kind === "company" ? n.label : n.busy || near.has(n.id) ? short(n) : "");
+  // Dates on the highlighted lines, and the timeline below the graph.
+  const on = id ? N.shown.links.filter(e => e.source.id === id || e.target.id === id) : [];
+  N.dl.selectAll("text").data(on.length <= 40 ? on : [], e => e.s + e.t + e.kind).join("text").attr("class", "lk-date").attr("text-anchor", "middle")
+    .text(dateLabel);
+  placeLabels();
+  renderTimeline(id);
   if (id && !quiet) {
     const n = N.shown.nodes.find(x => x.id === id);
     if (n && n.x != null) svg.transition().duration(450).call(N.zoom.transform, d3.zoomIdentity.scale(1.6).translate(-n.x, -n.y));
   }
+}
+// Put a line's date label 65% of the way from the highlighted node, where lines fan out.
+const lblT = e => e.source.id === N.focus ? 0.65 : 0.35;
+const lblX = e => e.source.x + (e.target.x - e.source.x) * lblT(e);
+const lblY = e => e.source.y + (e.target.y - e.source.y) * lblT(e) - 4;
+const lblO = e => Math.hypot(e.target.x - e.source.x, e.target.y - e.source.y) * (N.zoomK || 1) < 90 ? 0 : 1;   // too short to label legibly
+// Position line labels and drop any that would overlap a label already placed.
+function placeLabels() {
+  if (!N.dl) return;
+  const k = N.zoomK || 1, kept = [];
+  // Highlighted dots and their name labels are obstacles too.
+  N.g.selectAll(".nd.on").each(function (n) {
+    const t = this.querySelector("text")?.textContent || "";
+    kept.push({ x: n.x, y: n.y, w: 24 });
+    if (t) kept.push({ x: n.x, y: n.y - 20, w: t.length * 7 + 6 });
+  });
+  N.dl.selectAll("text").each(function (e) {
+    const x = lblX(e), y = lblY(e), w = (this.textContent.length * 6.4 + 6) / 1, h = 13;
+    let ok = lblO(e) && this.textContent;
+    if (ok) for (const b of kept) if (Math.abs(b.x - x) * k < (b.w + w) / 2 && Math.abs(b.y - y) * k < h) { ok = false; break; }
+    if (ok) kept.push({ x, y, w });
+    d3.select(this).attr("x", x).attr("y", y).attr("opacity", ok ? 1 : 0);
+  });
+}
+const mon = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+function dateLabel(e) {
+  if (e.kind === "oversees") return "";
+  if (e.kind === "overlap") { const b = Math.min(...e.ev.map(x => Math.abs(x.gap))); return `${b}d apart`; }
+  const ds = e.ev.map(x => x.date || x.filed).filter(Boolean).sort();
+  if (!ds.length) return "";
+  return ds[0] === ds[ds.length - 1] ? mon(ds[0]) : `${mon(ds[0])} – ${mon(ds[ds.length - 1])}`;
+}
+/* One row per person or stock, one dot per trade, on a shared date axis. */
+function timelineRows(id) {
+  const n = N.shown.nodes.find(x => x.id === id); if (!n) return { n, rows: [] };
+  const ties = N.shown.links.filter(e => e.source.id === id || e.target.id === id);
+  const other = e => e.source.id === id ? e.target : e.source;
+  const rows = [];
+  const who = o => o.kind === "member" ? nlabel(o) : o.label;
+  const kindName = { member: "Congress", insider: "Insider", fund: "Fund", company: "" };
+  if (n.kind === "company") {
+    for (const e of ties.filter(e => e.kind === "trade")) {
+      const o = other(e);
+      rows.push({ label: who(o), sub: kindName[o.kind] + (o.role ? " · " + o.role : ""), kind: o.kind, pts: e.ev.map(x => ({ d: x.date || x.filed, side: x.pct != null ? "buy" : x.side, txt: `${who(o)} ${x.pct != null ? "filed a 13D stake in" : x.side === "buy" ? "bought" : "sold"} ${n.label} on ${shortD(x.date || x.filed, true)}${x.value ? ", " + money(x.value) : x.lo != null ? ", " + amt(x) : ""}`, url: x.url })) });
+    }
+  } else {
+    for (const e of ties.filter(e => e.kind === "trade")) {
+      const c = other(e);
+      rows.push({ label: `${short(n)} · ${c.label}`, sub: "own trades", kind: n.kind, pts: e.ev.map(x => ({ d: x.date || x.filed, side: x.side, txt: `${who(n)} ${x.side === "buy" ? "bought" : "sold"} ${c.label} on ${shortD(x.date || x.filed, true)}${x.value ? ", " + money(x.value) : x.lo != null ? ", " + amt(x) : ""}`, url: x.url })) });
+    }
+    for (const e of ties.filter(e => e.kind === "overlap")) {
+      const o = other(e), mine = n.kind === "member" ? "mdate" : "idate", theirs = n.kind === "member" ? "idate" : "mdate";
+      const seen = new Set();
+      const pts = e.ev.filter(x => { const k = x.ticker + x[theirs]; if (seen.has(k)) return false; seen.add(k); return true; })
+        .map(x => ({ d: x[theirs], side: x.side, txt: `${who(o)} ${x.side === "buy" ? "bought" : "sold"} ${x.ticker} on ${shortD(x[theirs], true)}, ${Math.abs(x.gap)} days ${(n.kind === "member" ? x.gap > 0 : x.gap < 0) ? "after" : "before"} ${short(n)} (${shortD(x[mine], true)})`, url: n.kind === "member" ? x.iurl : x.murl }));
+      rows.push({ label: who(o), sub: `${kindName[o.kind]} · same-direction trades in ${[...new Set(e.ev.map(x => x.ticker))].join(", ")}`, kind: o.kind, pts });
+    }
+    for (const e of ties.filter(e => e.kind === "donation")) {
+      const o = other(e);
+      rows.push({ label: who(o), sub: "campaign gifts (FEC)", kind: o.kind, pts: e.ev.map(x => ({ d: x.date, side: "gift", txt: `${n.kind === "insider" ? who(n) : who(o)} gave ${money(x.amount)} to ${n.kind === "member" ? who(n) : who(o)}'s campaign on ${shortD(x.date, true)}`, url: x.url })) });
+    }
+  }
+  rows.forEach(r => r.pts = r.pts.filter(p => p.d));
+  return { n, rows: rows.filter(r => r.pts.length).sort((a, b) => (a.sub === "own trades" ? -1 : 0) - (b.sub === "own trades" ? -1 : 0) || b.pts.length - a.pts.length) };
+}
+function renderTimeline(id) {
+  const box = $("#n-time-box"), svgEl = $("#n-time"), note = $("#n-time-note");
+  note.textContent = "";
+  if (!id || !N.shown) { box.hidden = true; $("#n-time-h").textContent = "Timeline"; $("#n-time-sub").textContent = "Pick a person or stock above to see when each trade happened"; return; }
+  const { n, rows } = timelineRows(id);
+  N.tlAll ??= false;
+  const cap = $("#n-time-sec").clientWidth < 560 && !N.tlAll ? 10 : 40;
+  const show = rows.slice(0, cap);
+  $("#n-time-h").textContent = "Timeline: " + (n.kind === "member" ? nlabel(n) : n.label);
+  $("#n-time-sub").textContent = rows.length ? "Each dot is one trade. Green bought, red sold, blue a campaign gift. Tap a dot for details." : "No dated trades for this view.";
+  box.hidden = !rows.length; if (!rows.length) return;
+  const W = Math.max(box.clientWidth, 320), narrow = W < 560, L = narrow ? 120 : 220, R = 16, rowH = narrow ? 34 : 30, top = 26, axisH = 0;
+  const H = top + show.length * rowH + 6;
+  // Trades set the date range; older campaign gifts are pinned to the left edge with their date.
+  let all = show.flatMap(r => r.pts.filter(p => p.side !== "gift").map(p => new Date(p.d + "T12:00:00")));
+  if (!all.length) all = show.flatMap(r => r.pts.map(p => new Date(p.d + "T12:00:00")));
+  let [d0, d1] = d3.extent(all); const pad = Math.max(2, (d1 - d0) / 864e5 * 0.04) * 864e5;
+  d0 = new Date(+d0 - pad); d1 = new Date(+d1 + pad);
+  const x = d3.scaleTime().domain([d0, d1]).range([L, W - R]);
+  const svg = d3.select(svgEl).attr("viewBox", [0, 0, W, H]).attr("height", H);
+  svg.selectAll("*").remove();
+  svg.append("g").attr("class", "grid").attr("transform", `translate(0,${top - 4})`)
+    .call(d3.axisTop(x).tickValues(x.ticks(10).reduce((o, t) => (!o.length || x(t) - x(o[o.length - 1]) >= (narrow ? 64 : 80) ? [...o, t] : o), [])).tickSize(-(H - top)).tickFormat(d3.timeFormat("%b %-d")));
+  const px = p => { const t = new Date(p.d + "T12:00:00"); return t < d0 ? L + 6 : t > d1 ? W - R - 6 : x(t); };
+  const outside = p => { const t = new Date(p.d + "T12:00:00"); return t < d0 || t > d1; };
+  const row = svg.append("g").selectAll("g").data(show).join("g").attr("transform", (r, i) => `translate(0,${top + i * rowH})`);
+  row.filter((r, i) => i % 2 === 0).append("rect").attr("class", "band").attr("x", 0).attr("width", W).attr("height", rowH).attr("opacity", .6);
+  const cut = (t, k) => t.length > k ? t.slice(0, k - 1) + "…" : t;
+  row.append("text").attr("class", "row-l").attr("x", 6).attr("y", narrow ? 13 : rowH / 2 - 1).text(r => cut(r.label, narrow ? 18 : 32));
+  row.append("text").attr("class", "row-s").attr("x", 6).attr("y", narrow ? 27 : rowH / 2 + 11).text(r => cut(r.sub, narrow ? 20 : 38));
+  row.selectAll("path").data(r => r.pts).join("path")
+    .attr("class", p => "dot " + p.side)
+    .attr("transform", p => `translate(${px(p)},${rowH / 2})`)
+    .attr("d", function () { const r = d3.select(this.parentNode).datum(); return d3.symbol(d3[SHAPE[r.kind] || "symbolCircle"], 90)(); })
+    .on("click", function (ev, p) { svg.selectAll(".dot").classed("on", false); d3.select(this).classed("on", true); note.innerHTML = `${esc(p.txt)}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">filing</a>` : ""}`; })
+    .append("title").text(p => p.txt);
+  row.each(function (r) {
+    const off = r.pts.filter(outside);
+    if (off.length) d3.select(this).append("text").attr("class", "row-s").attr("x", L + 16).attr("y", rowH / 2 + 4)
+      .text(`${off.length > 1 ? off.length + " gifts, " : ""}${shortD(off[off.length - 1].d, true)}${off.length > 1 ? " to " + shortD(off[0].d, true) : ""} (before this range)`);
+  });
+  $("#n-time-more").innerHTML = rows.length > show.length ? `<span>Showing ${show.length} of ${rows.length} rows</span><button class="btn" type="button" id="n-tl-all">Show all</button>` : N.tlAll && rows.length > 10 ? `<button class="btn" type="button" id="n-tl-less">Show fewer</button>` : "";
 }
 function fitNetwork() {
   if (!N.g || !N.shown?.nodes.length) return;
@@ -1275,6 +1405,7 @@ document.addEventListener("click", e => {
   const ns = e.target.closest("[data-ns]"); if (ns) { N.side = ns.dataset.ns; renderNetwork(); return; }
   if (e.target.id === "n-showmore") { N.limit += 100; renderOverlaps(); return; }
   if (e.target.id === "n-fit") { fitNetwork(); return; }
+  if (e.target.id === "n-tl-all" || e.target.id === "n-tl-less") { N.tlAll = e.target.id === "n-tl-all"; renderTimeline(N.focus); return; }
   if (e.target.id === "n-zin" || e.target.id === "n-zout") { d3.select("#n-svg").transition().duration(250).call(N.zoom.scaleBy, e.target.id === "n-zin" ? 1.4 : 1 / 1.4); return; }
   const fo = e.target.closest("[data-follow]"); if (fo) { const k = fo.dataset.follow; setFollow(k, !C.follow.includes(k)); fo.setAttribute("aria-pressed", C.follow.includes(k)); fo.textContent = C.follow.includes(k) ? "Following" : "Follow"; return; }
   const uf = e.target.closest("[data-unfollow]"); if (uf) { setFollow(uf.dataset.unfollow, false); return; }
