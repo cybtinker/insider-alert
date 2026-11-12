@@ -76,6 +76,10 @@ header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20
 .sym button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 15px; line-height: 1; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .row input[type=date] { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 6px 8px; font-size: 14px; min-width: 0; flex: 1 1 130px; }
+.ego { display: block; width: 100%; height: auto; max-height: 300px; }
+.ego text { font: 600 11px/1 var(--f-body); fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.ego .tkl { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); }
+.chip.net { background: var(--accent-soft); color: var(--accent); border: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
 .linkbtn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; font-weight: 600; }
 .preset { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
 .preset[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
@@ -178,6 +182,7 @@ td .issuer { color: var(--muted); font-size: 12px; max-width: 220px; overflow: h
 .lk.trade { stroke-opacity: .45; }
 .lk.oversees { stroke: var(--warn); stroke-dasharray: 2 5; stroke-width: 2; stroke-opacity: .9; }
 .lk.overlap { stroke: var(--ink); stroke-opacity: .7; stroke-dasharray: 8 4; }
+.lk.donation { stroke: var(--accent); stroke-opacity: .85; }
 .nd path { stroke: var(--surface); stroke-width: 2; cursor: pointer; }
 .nd.insider path { fill: var(--k-ins); } .nd.member path { fill: var(--k-mem); } .nd.fund path { fill: var(--k-fund); } .nd.company path { fill: var(--k-co); }
 .nd text { font: 600 11px/1 var(--f-body); fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
@@ -331,6 +336,12 @@ footer { color: var(--muted); font-size: 12px; }
     <div class="more" id="c-timing-more"></div>
   </section>
 
+  <section id="c-net-sec" hidden>
+    <div class="sec-head"><h2>Who they trade alongside</h2><span class="sub">Members whose trades lined up with company insiders' trades in the same stock (same direction, within 30 days), or who took insiders' campaign money</span></div>
+    <div class="people" id="c-net"></div>
+    <div class="more" id="c-net-more"></div>
+  </section>
+
   <section id="c-late-sec" hidden>
     <div class="sec-head"><h2>Late filers</h2><span class="sub">Trades reported more than 45 days after they were made, the STOCK Act deadline</span></div>
     <div class="people" id="c-late"></div>
@@ -368,7 +379,7 @@ footer { color: var(--muted); font-size: 12px; }
       <div class="row">
         <div class="seg" id="n-mode" role="group" aria-label="Which links">
           <button type="button" data-nm="all" aria-pressed="true">Everything</button>
-          <button type="button" data-nm="overlap" aria-pressed="false">Direct overlaps only</button>
+          <button type="button" data-nm="overlap" aria-pressed="false">Person-to-person only</button>
         </div>
         <div class="seg" id="n-side" role="group" aria-label="Trade direction">
           <button type="button" data-ns="all" aria-pressed="true">All</button>
@@ -385,7 +396,7 @@ footer { color: var(--muted); font-size: 12px; }
 
   <section>
     <div class="sec-head"><h1>Who trades alongside whom</h1><span class="sub" id="n-line"></span></div>
-    <p class="caveat">Lines come from public filings: two people traded the same stock in the same direction within <b id="n-win">30</b> days, or a member traded a company their committee oversees. They show overlap in the record, <b>not</b> that these people know or talk to each other.</p>
+    <p class="caveat">Lines come from public filings: two people traded the same stock in the same direction within <b id="n-win">30</b> days, a member traded a company their committee oversees, or an insider gave to a member's campaign (FEC records). They show overlap in the record, <b>not</b> that these people know or talk to each other.</p>
   </section>
 
   <section>
@@ -408,7 +419,14 @@ footer { color: var(--muted); font-size: 12px; }
       <div class="more" id="n-more"></div>
     </div>
   </section>
-  <p class="note">Insiders: SEC Form 4 open-market buys and sales of $10K or more, and Schedule 13D stakes, from the last three months. Congress: STOCK Act trades from the same period. Only companies that both a member and an insider or fund traded appear. Campaign donations are not included yet.</p>
+  <section id="n-gifts-sec" hidden>
+    <div class="sec-head"><h2>Campaign donations</h2><span class="sub">Insiders who gave to a member's campaign, largest first</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Insider</th><th>Member</th><th class="r">Total</th><th>Gifts</th><th>Latest</th><th>Record</th></tr></thead>
+      <tbody id="n-gifts"></tbody>
+    </table></div>
+  </section>
+  <p class="note">Insiders: SEC Form 4 open-market buys and sales of $10K or more, and Schedule 13D stakes, from the last three months. Congress: STOCK Act trades from the same period. Only companies that both a member and an insider or fund traded appear. Campaign donations: FEC individual contributions in the 2024 and 2026 cycles to a current member's campaign, counted only when the donor's name and employer match the insider and company.</p>
 </div>
 
   <footer id="foot"></footer>
@@ -718,6 +736,8 @@ function rowFlags(t) {
   if (t.flag === "timing") { const m = t.ctx.meet[0]; c.push(`<span class="chip warn" title="${esc(m.cmte + " " + m.type.toLowerCase() + " on " + m.date + ": " + m.title)}">${esc(gapText(m.days))} ${esc(m.type.toLowerCase())}</span>`); }
   else if (t.flag === "overlap") c.push(`<span class="chip" title="${esc("Sits on " + t.ctx.cmte.join(", ") + ", which oversees " + t.ctx.ind)}">Own committee's industry</span>`);
   if (t.late) c.push(`<span class="chip warn" title="Traded ${esc(t.date)}, disclosed ${esc(t.filed)}">Filed ${t.late} days later</span>`);
+  const al = alongside(t);
+  if (al.length) c.push(`<button type="button" class="chip net" data-netgo="m:${esc(t.mkey)}" title="${esc(al.join(", "))}">${al.length} insider${al.length > 1 ? "s" : ""} also ${/Sell|Partial/.test(t.tx) ? "sold" : "bought"}</button>`);
   return c.length ? `<div class="rowchips">${c.join("")}</div>` : "";
 }
 const gapText = d => d > 0 ? `${d} day${d === 1 ? "" : "s"} before` : d < 0 ? `${-d} day${d === -1 ? "" : "s"} after` : "Same day as";
@@ -765,6 +785,76 @@ function renderSignals() {
       <div class="meta"><span>Latest ${fmtD(x.last)}</span></div>
     </article>`).join("");
 }
+/* Network data seen from the Congress tab: who each member traded alongside. */
+let NX = null;
+function netIndex() {
+  if (NX || !N.data) return NX;
+  const byId = new Map(N.data.nodes.map(n => [n.id, n]));
+  NX = { members: new Map(), rows: new Map() };
+  const ent = id => { let e = NX.members.get(id); if (!e) NX.members.set(id, e = { id, node: byId.get(id), ins: new Map(), gifts: [], total: 0, tickers: new Set() }); return e; };
+  for (const e of N.data.links) {
+    if (e.kind !== "overlap" && e.kind !== "donation") continue;
+    const mid = e.s.startsWith("m:") ? e.s : e.t, iid = mid === e.s ? e.t : e.s;
+    const m = ent(mid), ins = byId.get(iid);
+    if (e.kind === "donation") { m.gifts.push({ ins, total: e.total, n: e.w, ev: e.ev }); m.total += e.total || 0; continue; }
+    const x = m.ins.get(iid) || { ins, tickers: new Set(), best: 999 };
+    for (const v of e.ev) {
+      x.tickers.add(v.ticker); m.tickers.add(v.ticker); x.best = Math.min(x.best, Math.abs(v.gap));
+      const k = `${mid}|${v.ticker}|${v.side}|${v.mdate}`;
+      const set = NX.rows.get(k) || new Set(); set.add(ins.label); NX.rows.set(k, set);
+    }
+    m.ins.set(iid, x);
+  }
+  return NX;
+}
+function alongside(t) {
+  const X = netIndex(); if (!X || t.paper || !t.ticker) return [];
+  const side = t.tx === "Buy" ? "buy" : /Sell|Partial/.test(t.tx) ? "sell" : null;
+  return side ? [...(X.rows.get(`m:${t.mkey}|${t.ticker}|${side}|${t.date || t.filed}`) || [])] : [];
+}
+function egoSvg(m) {
+  const ins = [...m.ins.values()].sort((a, b) => b.tickers.size - a.tickers.size || a.best - b.best);
+  const gifts = m.gifts.filter(g => !m.ins.has(g.ins.id));
+  const ring = [...ins.map(x => ({ n: x.ins, kind: "overlap", lab: [...x.tickers].slice(0, 2).join(", ") })),
+                ...gifts.map(g => ({ n: g.ins, kind: "donation", lab: money(g.total) }))].slice(0, 12);
+  const giftIds = new Set(m.gifts.map(g => g.ins.id));
+  if (!ring.length) return "";
+  const W = 420, H = 300, cx = W / 2, cy = H / 2, R = 112, sym = (k, a) => window.d3 ? d3.symbol(d3[SHAPE[k]], a)() : `M0,0m-${Math.sqrt(a/3.14)},0a${Math.sqrt(a/3.14)},${Math.sqrt(a/3.14)} 0 1,0 ${2*Math.sqrt(a/3.14)},0a${Math.sqrt(a/3.14)},${Math.sqrt(a/3.14)} 0 1,0 -${2*Math.sqrt(a/3.14)},0`;
+  const pts = ring.map((r, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ring.length; return { ...r, x: cx + R * 1.45 * Math.cos(a), y: cy + R * Math.sin(a), a }; });
+  return `<svg class="ego" viewBox="0 0 ${W} ${H}" role="img" aria-label="Insiders linked to this member">
+    ${pts.map(p => `<line class="lk ${p.kind}" x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" stroke-width="2"/>${giftIds.has(p.n.id) && p.kind === "overlap" ? `<line class="lk donation" x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" stroke-width="2" transform="translate(3,3)"/>` : ""}
+      <text class="tkl" x="${(cx + p.x) / 2}" y="${(cy + p.y) / 2 - 3}" text-anchor="middle">${esc(p.lab)}</text>`).join("")}
+    ${pts.map(p => `<g class="nd insider" transform="translate(${p.x},${p.y})" data-nngo="${esc(p.n.id)}" style="cursor:pointer"><path d="${sym("insider", 110)}"/><text y="${p.y < cy ? -10 : 18}" text-anchor="middle">${esc(short(p.n))}</text></g>`).join("")}
+    <g class="nd member" transform="translate(${cx},${cy})"><path d="${sym("member", 260)}"/></g>
+  </svg>`;
+}
+function connCard(m) {
+  const n = m.node, ins = [...m.ins.values()].sort((a, b) => b.tickers.size - a.tickers.size || a.best - b.best);
+  const key = n.mkey;
+  const lines = [];
+  if (ins.length) lines.push(`Traded alongside <b>${ins.length} insider${ins.length > 1 ? "s" : ""}</b> in ${[...m.tickers].slice(0, 4).map(esc).join(", ")}${m.tickers.size > 4 ? ` +${m.tickers.size - 4}` : ""}`);
+  if (m.gifts.length) lines.push(`<b>${money(m.total)}</b> in campaign gifts from ${m.gifts.length} insider${m.gifts.length > 1 ? "s" : ""}`);
+  const top = ins.slice(0, 3).map(x => `${esc(x.ins.label)} <span class="note">(${esc([...x.tickers][0])}, ${x.best} day${x.best === 1 ? "" : "s"} apart)</span>`);
+  return `<article class="person"><div class="top">${key ? `<button class="tk" type="button" data-m="${esc(key)}" style="font-size:16px;text-align:left">${esc(n.label)}</button>` : `<b>${esc(n.label)}</b>`}<button type="button" class="chip net" data-netgo="${esc(n.id)}">See in network</button></div>
+    <div class="sub">${esc(n.chamber === "Senate" ? "Senate" : "House")}${n.state ? " · " + esc(n.state) : ""}</div>
+    <div>${lines.join("<br>")}</div>${top.length ? `<div class="note" style="color:var(--ink)">${top.join("<br>")}</div>` : ""}</article>`;
+}
+function renderConnections(rows) {
+  const X = netIndex(); const sec = $("#c-net-sec");
+  if (!X) { sec.hidden = true; return; }
+  const inView = new Set(rows.map(t => "m:" + t.mkey));
+  const list = [...X.members.values()].filter(m => m.node && (inView.has(m.id) || (!m.node.mkey && C.show === "all" && !C.q)))
+    .sort((a, b) => (b.ins.size + b.gifts.length * 2) - (a.ins.size + a.gifts.length * 2));
+  sec.hidden = !list.length;
+  C.nlimit ||= 6;
+  $("#c-net").innerHTML = list.slice(0, C.nlimit).map(connCard).join("");
+  $("#c-net-more").innerHTML = list.length > C.nlimit ? `<span>${list.length - C.nlimit} more members with links</span><button class="btn" type="button" id="c-nmore">Show more</button>` : "";
+}
+function goNetwork(id) {
+  closeDrawer();
+  N.pending = id;
+  if (location.hash === "#network") renderNetwork(); else location.hash = "#network";
+}
 function renderCongress() {
   if (!C.data) { $("#c-line").textContent = "Loading…"; return; }
   const ms = members(), q = C.q.trim().toLowerCase();
@@ -805,6 +895,7 @@ function renderCongress() {
     }).join("");
   }
   renderTiming(rows);
+  renderConnections(rows);
   document.querySelectorAll("[data-cf]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cf === C.flag));
   $("#c-count").textContent = `${fmtN(rows.length)} rows`;
   $("#c-rows").innerHTML = rows.slice(0, C.limit).map(t => cRowHtml(t)).join("") ||
@@ -814,6 +905,16 @@ function renderCongress() {
 function topTickers(rows) {
   const c = {}; rows.forEach(t => { if (t.ticker) c[t.ticker] = (c[t.ticker] || 0) + 1; });
   return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]).join(", ") || "–";
+}
+function memberConn(key) {
+  const m = netIndex()?.members.get("m:" + key);
+  if (!m) return "";
+  const ins = [...m.ins.values()].sort((a, b) => a.best - b.best);
+  return `<section><div class="sec-head" style="margin-bottom:6px"><h3 class="label" style="margin:0">Connections in public filings</h3><button type="button" class="chip net" data-netgo="${esc(m.id)}">Open in network</button></div>
+    ${egoSvg(m)}
+    <div class="ev">${ins.slice(0, 8).map(x => `<div class="e"><div class="t"><button class="linkbtn" type="button" data-nngo="${esc(x.ins.id)}">${esc(x.ins.label)}</button><span class="sub">${esc(x.ins.role || "")}</span></div><div>Same-direction trades in ${[...x.tickers].map(esc).join(", ")}, closest ${x.best} day${x.best === 1 ? "" : "s"} apart</div></div>`).join("")}
+    ${m.gifts.map(g => `<div class="e"><div class="t"><button class="linkbtn" type="button" data-nngo="${esc(g.ins.id)}">${esc(g.ins.label)}</button><span class="num">${money(g.total)}</span></div><div>${g.n} campaign contribution${g.n > 1 ? "s" : ""}, latest ${g.ev[0]?.date ? shortD(g.ev[0].date, true) : "–"} · <a href="${esc(g.ev[0]?.url)}" target="_blank" rel="noopener">FEC record</a></div></div>`).join("")}</div>
+    <p class="note" style="margin:6px 0 0">Overlap in filings, not evidence the people know each other.</p></section>`;
 }
 function openMember(key) {
   const list = (C.data?.trades || []).filter(t => t.mkey === key).sort((a, b) => b.filed.localeCompare(a.filed));
@@ -828,6 +929,7 @@ function openMember(key) {
           <div><span class="label">Buys</span><span class="v buy">${real.filter(t => t.tx === "Buy").length}</span></div>
           <div><span class="label">Sales</span><span class="v sell">${real.filter(t => /Sell|Partial/.test(t.tx)).length}</span></div>
           <div><span class="label">Top tickers</span><span class="v" style="font-size:15px">${esc(topTickers(real))}</span></div></div>
+        ${memberConn(key)}
         <div class="tbl"><table><thead><tr><th>Disclosed</th><th>Asset</th><th>Type</th><th class="r">Amount</th><th>Traded</th><th>Owner</th><th>Filing</th></tr></thead>
           <tbody>${list.map(t => cRowHtml(t, false)).join("") || `<tr><td colspan="7" class="sub">No filings found.</td></tr>`}</tbody></table></div>
       </div></aside>`;
@@ -873,7 +975,8 @@ function netGraph() {
   let links = [];
   for (const e of d.links) {
     if (!memberOk(e.s) || !memberOk(e.t)) continue;
-    if (N.mode === "overlap" && e.kind !== "overlap") continue;
+    if (N.mode === "overlap" && e.kind !== "overlap" && e.kind !== "donation") continue;
+    if (e.kind === "donation") { if (!symSet) links.push({ ...e }); continue; }
     if (e.kind === "overlap") {
       const ev = e.ev.filter(x => sideOk(x) && (!symSet || symSet.has(x.ticker)));
       if (ev.length) links.push({ ...e, ev, w: new Set(ev.map(x => x.ticker)).size });
@@ -894,7 +997,7 @@ function netGraph() {
     const has = {};
     for (const e of links) if (e.kind === "trade") { const h = has[e.t] ||= {}; h[e.s[0]] = 1; }
     const keep = new Set(Object.entries(has).filter(([, h]) => h.m && (h.i || h.f)).map(([k]) => k));
-    links = links.filter(e => e.kind === "overlap" || keep.has(e.t));
+    links = links.filter(e => e.kind === "overlap" || e.kind === "donation" || keep.has(e.t));
   }
   const used = new Set(links.flatMap(e => [e.s, e.t]));
   const deg = {};
@@ -911,7 +1014,8 @@ function netLegend() {
     <span>${sym("fund")} Fund (13D)</span><span>${sym("company")} Company</span>
     <span>${line("trade buy")} Bought</span><span>${line("trade sell")} Sold</span>
     <span>${line("overlap")} Same stock, same direction, within ${N.data?.window || 30} days</span>
-    <span>${line("oversees")} Member's committee oversees the company</span>`;
+    <span>${line("oversees")} Member's committee oversees the company</span>
+    ${N.data?.fec ? `<span>${line("donation")} Insider gave to the member's campaign (FEC)</span>` : ""}`;
 }
 
 function renderNetwork() {
@@ -930,7 +1034,9 @@ function renderNetwork() {
   $("#n-empty").hidden = !!G.nodes.length;
   $("#n-empty").textContent = "No connections match these filters.";
   drawNetwork(G);
+  if (N.pending) { const id = N.pending; N.pending = null; if (G.nodes.some(n => n.id === id)) { N.focus = id; setFocus(id, true); setTimeout(() => setFocus(id), 1600); $("#v-network").scrollIntoView(); } else toast("Not in the current network view. Try clearing the filters."); }
   renderOverlaps();
+  renderGifts();
 }
 
 function drawNetwork(G) {
@@ -950,7 +1056,7 @@ function drawNetwork(G) {
   G.nodes.forEach(n => n.busy = busy.has(n.id));
   const link = g.append("g").selectAll("line").data(G.links).join("line")
     .attr("class", e => `lk ${e.kind} ${e.dir || ""}`)
-    .attr("stroke-width", e => e.kind === "oversees" ? 2 : e.kind === "overlap" ? 1.5 + Math.min(e.w, 4) : 1 + Math.min(Math.sqrt(e.w), 3));
+    .attr("stroke-width", e => e.kind === "oversees" ? 2 : e.kind === "donation" ? 2 + Math.min(Math.sqrt(e.w), 3) : e.kind === "overlap" ? 1.5 + Math.min(e.w, 4) : 1 + Math.min(Math.sqrt(e.w), 3));
   const node = g.append("g").selectAll("g").data(G.nodes, n => n.id).join("g")
     .attr("class", n => "nd " + n.kind).attr("tabindex", 0).attr("role", "button")
     .attr("aria-label", n => `${nlabel(n)}, ${KIND[n.kind]}`);
@@ -965,7 +1071,7 @@ function drawNetwork(G) {
     .on("drag", (ev, n) => { n.fx = ev.x; n.fy = ev.y; })
     .on("end", (ev, n) => { if (!ev.active) N.sim.alphaTarget(0); n.fx = null; n.fy = null; }));
   N.sim = d3.forceSimulation(G.nodes)
-    .force("link", d3.forceLink(G.links).id(n => n.id).distance(e => e.kind === "overlap" ? 90 : 60).strength(e => e.kind === "oversees" ? 0.05 : 0.5))
+    .force("link", d3.forceLink(G.links).id(n => n.id).distance(e => e.kind === "overlap" || e.kind === "donation" ? 90 : 60).strength(e => e.kind === "oversees" ? 0.05 : 0.5))
     .force("charge", d3.forceManyBody().strength(-160).distanceMax(400))
     .force("collide", d3.forceCollide(n => radius(n) + 6))
     .force("x", d3.forceX().strength(0.04)).force("y", d3.forceY().strength(0.06))
@@ -985,10 +1091,10 @@ const short = n => { const p = n.label.replace(/ \+\d+$/, "").split(/\s+/); retu
 function netTip(ev, n) {
   const box = $(".net-box").getBoundingClientRect(), tip = $("#n-tip");
   const ties = N.shown.links.filter(e => e.source.id === n.id || e.target.id === n.id);
-  const over = ties.filter(e => e.kind === "overlap").length;
+  const over = ties.filter(e => e.kind === "overlap").length, gifts = ties.filter(e => e.kind === "donation");
   const bits = n.kind === "company"
     ? [`${n.name || ""}`, `${ties.filter(e => e.kind === "trade").length} people traded it`]
-    : [KIND[n.kind] + (n.role ? " · " + n.role : ""), `${n.buy} buy${n.buy === 1 ? "" : "s"}, ${n.sell} sale${n.sell === 1 ? "" : "s"}`, over ? `${over} direct overlap${over > 1 ? "s" : ""}` : ""];
+    : [KIND[n.kind] + (n.role ? " · " + n.role : ""), `${n.buy} buy${n.buy === 1 ? "" : "s"}, ${n.sell} sale${n.sell === 1 ? "" : "s"}`, over ? `${over} direct overlap${over > 1 ? "s" : ""}` : "", gifts.length ? `Campaign donations: ${money(gifts.reduce((a, e) => a + (e.total || 0), 0))}` : ""];
   tip.innerHTML = `<b>${esc(nlabel(n))}</b><br>${bits.filter(Boolean).map(esc).join("<br>")}`;
   tip.hidden = false;
   const x = ev.clientX - box.left + 14, y = ev.clientY - box.top + 14;
@@ -1029,6 +1135,8 @@ function openNode(id) {
   const overlaps = ties.filter(e => e.kind === "overlap").sort((a, b) => a.best - b.best || b.w - a.w);
   const trades = ties.filter(e => e.kind === "trade");
   const oversees = ties.filter(e => e.kind === "oversees");
+  const gifts = ties.filter(e => e.kind === "donation").sort((a, b) => b.total - a.total);
+  const gHtml = gifts.map(e => { const o = other(e); return `<div class="e"><div class="t">${go(o)}<span class="num">${money(e.total)}</span></div>${e.ev.slice(0, 5).map(x => `<div>${x.date ? shortD(x.date, true) : "date not given"} · ${money(x.amount)} to ${esc(x.committee || "campaign")} · <a href="${esc(x.url)}" target="_blank" rel="noopener">FEC record</a></div>`).join("")}${e.ev[0]?.employer ? `<div class="sub">Donor listed employer: ${esc(e.ev[0].employer)}${e.ev[0].occupation ? ", " + esc(e.ev[0].occupation) : ""}</div>` : ""}</div>`; }).join("");
   const sec = (title, body) => body ? `<section><h3 class="label" style="margin:0 0 8px">${title}</h3><div class="ev">${body}</div></section>` : "";
   const ovHtml = overlaps.map(e => { const o = other(e); return `<div class="e"><div class="t">${go(o)}<span class="sub">${e.w} stock${e.w > 1 ? "s" : ""} in common</span></div>
       ${e.ev.slice(0, 5).map(x => `<div><span class="pill ${x.side === "buy" ? "P" : "S"}">${x.side === "buy" ? "Both bought" : "Both sold"}</span> <b class="num">${esc(x.ticker)}</b> · member ${shortD(x.mdate, true)}, insider ${shortD(x.idate, true)} (${Math.abs(x.gap)} day${Math.abs(x.gap) === 1 ? "" : "s"} apart) · <a href="${esc(x.murl)}" target="_blank" rel="noopener">member filing</a> · <a href="${esc(x.iurl)}" target="_blank" rel="noopener">Form 4</a></div>`).join("")}</div>`; }).join("");
@@ -1036,8 +1144,8 @@ function openNode(id) {
   const osHtml = oversees.map(e => { const o = other(e); return `<div class="e"><div class="t">${go(o)}<span class="sub">${esc(e.ind || "")}</span></div><div>Committee: ${esc((e.cmte || []).join(", "))}</div>${(e.meet || []).slice(0, 3).map(m => `<div class="sub">${esc(m.cmte)} ${esc(m.type.toLowerCase())} on ${shortD(m.date, true)}: ${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a>` : esc(m.title)}</div>`).join("")}</div>`; }).join("");
   const title = n.kind === "company" ? `${esc(n.label)} <span class="sub">${esc(n.name || "")}</span>` : `${esc(nlabel(n))} <span class="sub">${esc(KIND[n.kind])}${n.role ? " · " + esc(n.role) : ""}</span>`;
   const extra = n.kind === "company" ? `<button class="btn" type="button" data-t="${esc(n.label)}">All insider trades in ${esc(n.label)}</button>`
-    : n.kind === "member" ? `<button class="btn" type="button" data-m="${esc(n.mkey)}">All trades by this member</button>`
-    : n.kind === "insider" ? `<button class="btn" type="button" data-p="${esc(n.pkey)}">All trades by this insider</button>` : "";
+    : n.kind === "member" && n.mkey ? `<button class="btn" type="button" data-m="${esc(n.mkey)}">All trades by this member</button>`
+    : n.kind === "insider" && n.pkey ? `<button class="btn" type="button" data-p="${esc(n.pkey)}">All trades by this insider</button>` : "";
   const root = $("#drawer-root");
   root.innerHTML = `<div class="scrim" data-close></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="Connections">
@@ -1045,6 +1153,7 @@ function openNode(id) {
       <div class="db">
         <p class="note" style="margin:0">Connections in public filings only. A shared trade is not evidence that two people know each other.</p>
         ${extra ? `<div class="row">${extra}</div>` : ""}
+        ${sec(n.kind === "member" ? "Campaign donations from insiders" : "Campaign donations to members", gHtml)}
         ${sec(n.kind === "company" ? "" : "Traded the same stock, same direction, close in time", n.kind === "company" ? "" : ovHtml)}
         ${sec(n.kind === "company" ? "Who traded it" : "Companies traded", trHtml)}
         ${sec(n.kind === "company" ? "Members whose committee oversees it" : "Committee oversight", osHtml)}
@@ -1074,6 +1183,15 @@ function renderOverlaps() {
     || `<tr><td colspan="8" class="sub">No overlapping trades with these filters.</td></tr>`;
   $("#n-more").innerHTML = rows.length > N.limit ? `<span>Showing ${N.limit} of ${fmtN(rows.length)}</span><button class="btn" type="button" id="n-showmore">Show more</button>` : rows.length ? `<span>${fmtN(rows.length)} overlapping trade${rows.length > 1 ? "s" : ""}</span>` : "";
 }
+function renderGifts() {
+  const rows = (N.shown?.links || []).filter(e => e.kind === "donation").sort((x, y) => y.total - x.total);
+  $("#n-gifts-sec").hidden = !rows.length;
+  $("#n-gifts").innerHTML = rows.slice(0, 50).map(e => { const i = [e.source, e.target].find(n => n.kind === "insider"), m = [e.source, e.target].find(n => n.kind === "member"); return `<tr>
+    <td><button class="linkbtn" type="button" data-nn="${esc(i.id)}">${esc(i.label)}</button><div class="sub">${esc(i.role || "")}</div></td>
+    <td><button class="linkbtn" type="button" data-nn="${esc(m.id)}">${esc(nlabel(m))}</button></td>
+    <td class="r num">${money(e.total)}</td><td class="num">${e.w}</td><td>${e.ev[0]?.date ? shortD(e.ev[0].date, true) : "–"}</td>
+    <td><a href="${esc(e.ev[0]?.url)}" target="_blank" rel="noopener">FEC</a></td></tr>`; }).join("");
+}
 function overlapCsv() {
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   return [["member", "chamber", "insider", "insider_role", "ticker", "direction", "member_trade_date", "member_amount", "insider_trade_date", "insider_value_usd", "days_apart", "member_filing", "insider_filing"].join(",")]
@@ -1102,12 +1220,15 @@ function showView() {
   $("#v-insiders").hidden = v !== "insiders"; $("#v-congress").hidden = v !== "congress"; $("#v-network").hidden = v !== "network";
   if (v === "network") { loadNetwork().then(() => renderNetwork()); loadCongress(); }
   document.querySelectorAll("[data-view]").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
-  if (v === "congress") { renderCongress(); loadCongress().then(() => renderCongress()); }
+  if (v === "congress") { renderCongress(); Promise.all([loadCongress(), loadNetwork()]).then(() => renderCongress()); }
 }
 window.addEventListener("hashchange", showView);
 
 /* events */
 document.addEventListener("click", e => {
+  const ng = e.target.closest("[data-netgo]"); if (ng) { goNetwork(ng.dataset.netgo); return; }
+  const ngo = e.target.closest("[data-nngo]"); if (ngo) { goNetwork(ngo.dataset.nngo); return; }
+  if (e.target.id === "c-nmore") { C.nlimit += 12; renderCongress(); return; }
   const nn = e.target.closest("[data-nn]"); if (nn) { closeDrawer(); setFocus(nn.dataset.nn); openNode(nn.dataset.nn); return; }
   const nm = e.target.closest("[data-nm]"); if (nm) { N.mode = nm.dataset.nm; renderNetwork(); return; }
   const ns = e.target.closest("[data-ns]"); if (ns) { N.side = ns.dataset.ns; renderNetwork(); return; }

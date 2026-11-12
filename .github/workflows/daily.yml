@@ -60,6 +60,11 @@ jobs:
         run: |
           pip install --quiet pyyaml
           python committees.py
+      - name: Collect campaign donations from insiders to members (FEC)
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: python fec.py
       - name: Save database
         if: always()
         uses: actions/cache/save@v4

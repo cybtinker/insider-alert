@@ -306,13 +306,13 @@ def add_context(con, rows: list[dict]) -> dict:
                 full_names[code] = name
     cache = {}
     for r in rows:
-        if r.get("paper") or not r.get("ticker") or r["ticker"] not in sic:
-            continue
         key = r["mkey"]
         if key not in cache:
             cache[key] = who(r)
         p = cache[key]
-        if not p:
+        if p:
+            r["bio"] = p["bio"]
+        if not p or r.get("paper") or not r.get("ticker") or r["ticker"] not in sic:
             continue
         s, desc = sic[r["ticker"]]
         mine = {c[:4] for c, _, _ in seats.get(p["bio"], [])}
@@ -395,7 +395,20 @@ def _side(code_or_tx: str) -> str | None:
     return None
 
 
-def build_network(trades, holders, congress_rows, window: int = NET_WINDOW) -> dict:
+def load_donations(con) -> list[dict]:
+    """Insider -> member campaign contributions that fec.py matched."""
+    try:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute("""
+            SELECT d.*, l.name AS member, l.chamber, l.state, c.name AS insider, c.issuer
+            FROM fec_donations d JOIN legislators l ON l.bioguide = d.bioguide
+            LEFT JOIN fec_checked c ON c.owner_key = d.owner_key
+            ORDER BY d.date DESC""")]
+    except sqlite3.OperationalError:
+        return []
+
+
+def build_network(trades, holders, congress_rows, donations=(), window: int = NET_WINDOW) -> dict:
     """A graph of people and companies linked by public filings.
 
     Nodes are members of Congress, company insiders, 13D filers (funds) and
@@ -409,6 +422,7 @@ def build_network(trades, holders, congress_rows, window: int = NET_WINDOW) -> d
                within `window` days of each other
       oversees member -> company: the trade falls under one of the member's
                committees (from add_context)
+      donation insider -> member: FEC individual contributions (from fec.py)
     These show overlap in public records, not that anyone knows anyone."""
     import datetime as _dt
 
@@ -499,14 +513,42 @@ def build_network(trades, holders, congress_rows, window: int = NET_WINDOW) -> d
             e["ev"].append({"side": "buy", "date": h["filed"], "filed": h["filed"],
                             "pct": h["pct"], "url": h["url"]})
 
+    # Campaign donations: insider -> member. Members who didn't trade a
+    # linked stock get a node keyed by their Bioguide id.
+    by_bio = {}
+    for r in congress_rows:
+        if r.get("bio") and "m:" + r["mkey"] in nodes:
+            by_bio.setdefault(r["bio"], "m:" + r["mkey"])
+    people = {}
+    for t in trades:
+        people.setdefault(str(t["pkey"]), t)
+    for d in donations:
+        mid = by_bio.get(d["bioguide"]) or "m:bio:" + d["bioguide"]
+        if mid not in nodes:
+            node(mid, "member", d["member"], chamber=d["chamber"], state=d["state"], mkey=None)
+        iid = "i:" + str(d["owner_key"])
+        if iid not in nodes:
+            t = people.get(str(d["owner_key"]))
+            node(iid, "insider", t["person"] if t else title_case(d.get("insider") or d.get("donor") or ""),
+                 role=t["role"] if t else (d.get("issuer") or ""),
+                 pkey=d["owner_key"] if t else None)
+        e = link(iid, mid, "donation")
+        e["ev"].append({"date": d["date"], "amount": d["amount"], "committee": d["committee"],
+                        "employer": d["employer"], "occupation": d["occupation"], "url": d["url"]})
+
     # Keep only companies where Congress meets an insider or fund.
     keep = {n["id"] for n in nodes.values() if n["kind"] == "company"
             and any(e["t"] == n["id"] and e["s"][:2] in ("i:", "f:") for e in links.values())}
     out_links = []
     for e in links.values():
-        if e["kind"] != "overlap" and e["t"] not in keep:
+        if e["kind"] in ("trade", "oversees") and e["t"] not in keep:
             continue
-        if e["kind"] == "overlap":
+        if e["kind"] == "donation":
+            e["ev"].sort(key=lambda x: x["date"] or "", reverse=True)
+            e["w"] = len(e["ev"])
+            e["total"] = round(sum(x["amount"] or 0 for x in e["ev"]))
+            e["ev"] = e["ev"][:12]
+        elif e["kind"] == "overlap":
             # One evidence row per stock and pair of dates is plenty.
             seen, ev = set(), []
             for x in sorted(e["ev"], key=lambda x: abs(x["gap"])):
@@ -524,7 +566,8 @@ def build_network(trades, holders, congress_rows, window: int = NET_WINDOW) -> d
     used = {x for e in out_links for x in (e["s"], e["t"])}
     out_nodes = [n for n in nodes.values() if n["id"] in used]
     return {"nodes": out_nodes, "links": out_links, "window": window,
-            "since": first, "overlaps": sum(1 for e in out_links if e["kind"] == "overlap")}
+            "since": first, "overlaps": sum(1 for e in out_links if e["kind"] == "overlap"),
+            "donations": sum(1 for e in out_links if e["kind"] == "donation"), "fec": bool(donations)}
 
 
 def main():
@@ -561,7 +604,7 @@ def main():
     congress["ctx"] = {**ctx_stats, "late_days": LATE_DAYS,
                        "window": [WINDOW_BEFORE, WINDOW_AFTER]}
     signals = cross_signals(trades, holders, congress["trades"], days[-1])
-    network = build_network(trades, holders, congress["trades"])
+    network = build_network(trades, holders, congress["trades"], load_donations(con))
     preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
                "congress": congress, "signals": signals, "network": network}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
@@ -603,7 +646,7 @@ def main():
           f"{sum(1 for r in congress['trades'] if r.get('flag') == 'timing')} timing flags, "
           f"{sum(1 for r in congress['trades'] if r.get('flag') == 'overlap')} industry overlaps, "
           f"{sum(1 for r in congress['trades'] if r.get('late'))} late filings; {len(signals)} cross-signals; "
-          f"network {len(network['nodes'])} nodes, {len(network['links'])} links, {network['overlaps']} overlaps")
+          f"network {len(network['nodes'])} nodes, {len(network['links'])} links, {network['overlaps']} overlaps, {network['donations']} donation links")
     print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days "
           f"({days[0]} to {days[-1]}) -> {site}")
 
