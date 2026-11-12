@@ -53,6 +53,7 @@ header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20
 .tabs a[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
 @media (max-width: 640px) { .tabs { order: 3; width: 100%; } .tabs a { flex: 1; text-align: center; } }
 .view { display: grid; gap: 28px; min-width: 0; }
+[hidden] { display: none !important; }
 .view > section { min-width: 0; }
 .sugg { display: grid; gap: 4px; }
 .sugg .m { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
@@ -200,6 +201,31 @@ svg.focus .nd:not(.on), svg.focus .lk:not(.on) { opacity: .12; }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-align: left; }
 footer { color: var(--muted); font-size: 12px; }
 @media (prefers-reduced-motion: no-preference) { .drawer { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+/* track box + following strip (shown on every tab) */
+.track { margin: 16px 0 4px; display: grid; gap: 10px; }
+.trackbox { position: relative; }
+.trackbox input { width: 100%; box-sizing: border-box; font: 500 16px/1.3 var(--f-body); padding: 12px 14px 12px 40px; border: 2px solid var(--accent); border-radius: 10px; background: var(--surface); color: inherit; outline: none; }
+.trackbox input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+.trackbox .glass { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--accent); pointer-events: none; }
+.tsugg { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 15; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / .14); max-height: 360px; overflow: auto; padding: 4px; }
+.tsugg button { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none; color: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+.tsugg button[aria-selected="true"], .tsugg button:hover { background: var(--accent-soft); }
+.tsugg .kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; min-width: 58px; text-align: center; }
+.kind.t { background: var(--accent-soft); color: var(--accent); } .kind.p { background: color-mix(in srgb, var(--k-ins) 14%, transparent); color: var(--k-ins); } .kind.m { background: color-mix(in srgb, var(--k-mem) 14%, transparent); color: var(--k-mem); }
+.tsugg .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsugg .nm small { color: var(--muted); margin-left: 6px; }
+.tsugg .add { font-size: 12px; font-weight: 600; color: var(--accent); }
+.tsugg .none { padding: 10px; font-size: 13px; color: var(--muted); }
+.following { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.following .lab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-right: 4px; }
+.fchip { display: inline-flex; align-items: center; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; font-weight: 600; overflow: hidden; }
+.fchip > button { border: 0; background: none; color: inherit; cursor: pointer; font: inherit; padding: 5px 4px 5px 10px; }
+.fchip > button.x { padding: 5px 9px 5px 4px; color: var(--muted); font-size: 15px; line-height: 1; }
+.fchip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.fchip.t .dot { background: var(--accent); } .fchip.p .dot { background: var(--k-ins); } .fchip.m .dot { background: var(--k-mem); }
+.fchip.t > button:first-child { font-family: var(--f-mono); }
+.following .empty-note { font-size: 13px; color: var(--muted); }
+.following .only { margin-left: auto; font-size: 12px; }
 </style>
 
 <header>
@@ -214,13 +240,16 @@ footer { color: var(--muted); font-size: 12px; }
 </header>
 
 <main class="wrap">
+<section class="track" aria-label="Track and following">
+  <div class="trackbox">
+    <svg class="glass" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="tr-in" type="search" autocomplete="off" spellcheck="false" enterkeyhint="go" role="combobox" aria-expanded="false" aria-controls="tr-sugg" aria-autocomplete="list" placeholder="Track a ticker or person, e.g. NVDA, Pelosi" aria-label="Track a ticker, insider or member of Congress">
+    <div class="tsugg" id="tr-sugg" role="listbox" hidden></div>
+  </div>
+  <div class="following" id="following" aria-live="polite"></div>
+</section>
 <div class="view" id="v-insiders">
   <section class="controls" aria-label="What to show">
-    <div class="ctl">
-      <div class="row" style="justify-content:space-between"><label class="label" for="sym-in">Your symbols</label><button class="linkbtn" type="button" id="sym-clear" hidden>Show all symbols</button></div>
-      <div class="symbox" id="symbox"><span id="symchips" class="row" style="gap:6px"></span><input id="sym-in" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Add tickers, e.g. AAPL, MSFT, NVDA" aria-label="Add ticker symbols"></div>
-      <span class="note" id="sym-note">Leave empty to see every symbol. Your list is saved on this device.</span>
-    </div>
     <div class="ctl">
       <span class="label">Filing dates</span>
       <div class="row"><input type="date" id="d-from" aria-label="From date"><span class="sub">to</span><input type="date" id="d-to" aria-label="To date"></div>
@@ -448,7 +477,13 @@ const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", {wee
 
 const S = { from: null, to: null, syms: [], q: "", kind: "market", minv: 100000, sort: "value", dir: -1, limit: 100 };
 try { const k = localStorage.getItem("ia-kind"); if (k) S.kind = k; const m = localStorage.getItem("ia-minv"); if (m) S.minv = +m;
-      const w = JSON.parse(localStorage.getItem("ia-syms") || "[]"); if (Array.isArray(w)) S.syms = w.slice(0, 200); } catch (e) {}
+      const w = JSON.parse(localStorage.getItem("ia-syms") || "[]"); if (Array.isArray(w)) S.syms = w.slice(0, 200);
+      S.only = localStorage.getItem("ia-only") !== "0";
+      const pp = JSON.parse(localStorage.getItem("ia-people") || "[]"); if (Array.isArray(pp)) S.people = pp.slice(0, 100); } catch (e) {}
+if (!Array.isArray(S.people)) S.people = [];
+if (S.only === undefined) S.only = true;
+/* symbols that filter the insiders tab: the followed list, unless "show all" is on */
+const FS = () => S.only ? S.syms : [];
 
 /* data: an index of available days, then one file per day loaded on demand */
 const CACHE = {};
@@ -460,7 +495,7 @@ async function getDay(d) {
   return (CACHE[d] = await r.json());
 }
 const rangeDays = () => DATA.days.filter(d => d >= S.from && d <= S.to);
-const symOk = tk => !S.syms.length || S.syms.includes((tk || "").toUpperCase());
+const symOk = tk => !FS().length || FS().includes((tk || "").toUpperCase());
 function allTrades() { return rangeDays().flatMap(d => CACHE[d]?.trades || []); }
 function rangeTrades() { return allTrades().filter(t => symOk(t.ticker)); }
 function rangeHolders() { return rangeDays().flatMap(d => CACHE[d]?.holders || []).filter(h => symOk(h.ticker)); }
@@ -484,15 +519,10 @@ function filtered() {
 const longD = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", {weekday: "long", month: "long", day: "numeric", year: "numeric"});
 const shortD = (d, yr) => new Date(d + "T12:00:00").toLocaleDateString("en-US", yr ? {month: "short", day: "numeric", year: "numeric"} : {month: "short", day: "numeric"});
 function rangeLabel() { return S.from === S.to ? longD(S.from) : `${shortD(S.from, S.from.slice(0,4) !== S.to.slice(0,4))} to ${shortD(S.to, true)}`; }
-function fileTag() { return (S.from === S.to ? S.from : S.from + "_to_" + S.to) + (S.syms.length && S.syms.length <= 5 ? "_" + S.syms.join("-") : S.syms.length ? "_watchlist" : ""); }
+function fileTag() { const f = FS(); return (S.from === S.to ? S.from : S.from + "_to_" + S.to) + (f.length && f.length <= 5 ? "_" + f.join("-") : f.length ? "_watchlist" : ""); }
 
 function renderControls() {
-  $("#symchips").innerHTML = S.syms.map(x => `<span class="sym">${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="Remove ${esc(x)}">×</button></span>`).join("");
-  $("#sym-clear").hidden = !S.syms.length;
-  const known = new Set(allTrades().map(t => t.ticker));
-  const missing = S.syms.filter(x => !known.has(x));
-  $("#sym-note").textContent = !S.syms.length ? "Leave empty to see every symbol. Your list is saved on this device."
-    : missing.length ? `No Form 4 trades in these dates for ${missing.join(", ")}.` : `Showing ${S.syms.length} symbol${S.syms.length > 1 ? "s" : ""}. Your list is saved on this device.`;
+  renderFollowing();
   const f = $("#d-from"), t = $("#d-to");
   f.min = t.min = DATA.days[0]; f.max = t.max = DATA.days[DATA.days.length - 1];
   f.value = S.from; t.value = S.to;
@@ -510,8 +540,9 @@ function renderTally() {
   const sum = a => a.reduce((s, t) => s + t.value, 0);
   const filings = new Set(rt.map(t => t.acc)).size;
   const hold = rangeHolders().length;
-  $("#headline").textContent = (S.syms.length ? (S.syms.length <= 4 ? S.syms.join(", ") : "Your " + S.syms.length + " symbols") + ": " : "Insider filings, ") + rangeLabel();
-  $("#dayline").textContent = `${rangeDays().length} filing day${rangeDays().length === 1 ? "" : "s"} · ${S.syms.length ? "your symbols only" : "all symbols"}`;
+  const fs = FS();
+  $("#headline").textContent = (fs.length ? (fs.length <= 4 ? fs.join(", ") : "Your " + fs.length + " symbols") + ": " : "Insider filings, ") + rangeLabel();
+  $("#dayline").textContent = `${rangeDays().length} filing day${rangeDays().length === 1 ? "" : "s"} · ${fs.length ? "followed symbols only" : "all symbols"}`;
   $("#tally").innerHTML = `
     <div><span class="label">Open-market buys</span><span class="v buy">${money(sum(buys))}</span><span class="n">${fmtN(buys.length)} trades</span></div>
     <div><span class="label">Open-market sales</span><span class="v sell">${money(sum(sells))}</span><span class="n">${fmtN(sells.length)} trades</span></div>
@@ -528,7 +559,7 @@ function renderDocket() {
       <div class="sub">${t.code === "S" ? "Sold" : "Bought"} ${fmtN(t.shares)} shares of ${esc(t.issuer)}${t.price ? " at about $" + t.price.toFixed(2) : ""}</div>
       <div class="chips">${t.why.map(w => `<span class="chip ${/No 10b5|selling/.test(w) ? "warn" : ""}">${esc(w)}</span>`).join("")}</div>
       <div class="meta"><span>Traded ${fmtD(t.date)} · filed ${fmtD(t.filed)}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">SEC filing ↗</a></div>
-    </article>`).join("") : `<div class="empty">Nothing stood out ${S.syms.length ? "for your symbols " : ""}in these dates: no open-market buys over $100K and no sales over $10M.</div>`;
+    </article>`).join("") : `<div class="empty">Nothing stood out ${FS().length ? "for your symbols " : ""}in these dates: no open-market buys over $100K and no sales over $10M.</div>`;
 }
 function rowHtml(t, withTicker = true) {
   return `<tr>
@@ -591,21 +622,121 @@ function addSyms(text) {
 }
 function setSyms(list) { S.syms = list; try { localStorage.setItem("ia-syms", JSON.stringify(S.syms)); } catch (e) {} renderAll(); }
 
+
+/* ---------- Track box + Following strip (every tab) ---------- */
+const NAMES = { t: null, p: null, pmap: null, loading: null };
+function loadNames() {
+  if (NAMES.t) return Promise.resolve(NAMES);
+  if (DATA.names) return Promise.resolve(setNames(DATA.names));
+  return NAMES.loading ||= fetch("names.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw 0; return r.json(); })
+    .then(setNames).catch(() => { NAMES.loading = null; return NAMES; });
+}
+function setNames(d) { NAMES.t = d.t || []; NAMES.p = d.p || []; NAMES.pmap = new Map(NAMES.p.map(x => [x[0], x])); return NAMES; }
+function setPeople(list) { S.people = list; try { localStorage.setItem("ia-people", JSON.stringify(S.people)); } catch (e) {} renderFollowing(); }
+function setOnly(on) { S.only = on; try { localStorage.setItem("ia-only", on ? "1" : "0"); } catch (e) {} renderAll(); }
+async function openPerson(key) {
+  await loadNames();
+  const days = NAMES.pmap?.get(key)?.[4];
+  if (days?.length) {
+    try { await Promise.all(days.filter(d => DATA.days.includes(d)).map(getDay)); } catch (e) {}
+    openDrawer("p", key, days.filter(d => CACHE[d]));
+  } else openDrawer("p", key);
+}
+function openTracked(kind, key) {
+  if (kind === "t") openDrawer("t", key);
+  else if (kind === "p") openPerson(key);
+  else loadCongress().then(d => { if (d) openMember(key); });
+}
+function renderFollowing() {
+  const box = $("#following"); if (!box) return;
+  const chip = (kind, key, label, title) => `<span class="fchip ${kind}"><button type="button" data-open="${kind}" data-key="${esc(key)}" title="${esc(title)}"><span class="dot"></span>${esc(label)}</button><button type="button" class="x" data-unf="${kind}" data-key="${esc(key)}" aria-label="Stop following ${esc(label)}">×</button></span>`;
+  const items = [
+    ...S.syms.map(x => chip("t", x, x, "Ticker: open history")),
+    ...S.people.map(p => chip("p", p.k, p.n, "Company insider: open history")),
+    ...C.follow.map(k => chip("m", k, k.split("|")[0], "Member of Congress: open trades")),
+  ];
+  const n = items.length;
+  box.innerHTML = `<span class="lab">Following${n ? " · " + n : ""}</span>` + (n ? items.join("")
+    : `<span class="empty-note">Nothing yet. Search above for a ticker, an insider or a member of Congress and tap it to follow.</span>`)
+    + (S.syms.length ? `<label class="check only"><input type="checkbox" id="only-cb" ${S.only ? "checked" : ""}> Show only followed tickers on the insiders tab</label>` : "");
+}
+function trackMatches(q) {
+  const out = [], Q = q.toUpperCase(), ql = q.toLowerCase();
+  if (!q) return out;
+  const tk = (NAMES.t || []);
+  const exact = tk.find(x => x[0] === Q);
+  if (exact) out.push({ kind: "t", key: exact[0], label: exact[0], sub: exact[1] });
+  tk.filter(x => x[0] !== Q && (x[0].startsWith(Q) || (ql.length >= 3 && x[1].toLowerCase().includes(ql)))).slice(0, 4)
+    .forEach(x => out.push({ kind: "t", key: x[0], label: x[0], sub: x[1] }));
+  // Names match at the start of any word ("pel" finds Pelosi, "nv" doesn't find Invesco).
+  const wordHit = name => (" " + name.toLowerCase().replace(/[^a-z0-9 ]/g, " ")).includes(" " + ql);
+  if (ql.length >= 2) {
+    (C.data ? [...members().values()] : []).filter(m => wordHit(m.name)).sort((a, b) => b.n - a.n).slice(0, 3)
+      .forEach(m => out.push({ kind: "m", key: m.key, label: m.name, sub: (m.key.endsWith("|Senate") ? "Senator" : "House" + (m.state ? " · " + m.state : "")) }));
+    (NAMES.p || []).filter(x => wordHit(x[1])).slice(0, 5)
+      .forEach(x => out.push({ kind: "p", key: x[0], label: x[1], sub: [x[2], x[3]].filter(Boolean).join(" · ") }));
+  }
+  if (!exact && /^[A-Z][A-Z0-9.\-]{0,6}$/.test(Q) && q === q.toUpperCase()) out.push({ kind: "t", key: Q, label: Q, sub: "Follow this ticker" });
+  return out.slice(0, 10);
+}
+const TR = { items: [], sel: 0 };
+function isFollowing(it) { return it.kind === "t" ? S.syms.includes(it.key) : it.kind === "p" ? S.people.some(p => p.k === it.key) : C.follow.includes(it.key); }
+function renderSugg() {
+  const q = $("#tr-in").value.trim(), box = $("#tr-sugg");
+  if (!q) { box.hidden = true; $("#tr-in").setAttribute("aria-expanded", "false"); return; }
+  TR.items = trackMatches(q); TR.sel = Math.min(TR.sel, Math.max(0, TR.items.length - 1));
+  const kindName = { t: "Ticker", p: "Insider", m: "Congress" };
+  box.innerHTML = TR.items.length ? TR.items.map((it, i) => `<button type="button" role="option" data-tri="${i}" aria-selected="${i === TR.sel}">
+      <span class="kind ${it.kind}">${kindName[it.kind]}</span><span class="nm">${esc(it.label)}<small>${esc(it.sub || "")}</small></span><span class="add">${isFollowing(it) ? "Following ✓" : "+ Follow"}</span></button>`).join("")
+    : `<div class="none">${NAMES.loading && !NAMES.t ? "Loading names…" : "No ticker or person matches. Try a last name or a ticker symbol."}</div>`;
+  box.hidden = false; $("#tr-in").setAttribute("aria-expanded", "true");
+}
+function pickTrack(it) {
+  if (!it) return;
+  if (!isFollowing(it)) {
+    if (it.kind === "t") setSyms([...S.syms, it.key]);
+    else if (it.kind === "p") setPeople([...S.people, { k: it.key, n: it.label }]);
+    else setFollow(it.key, true);
+    if (it.kind !== "m") toast("Following " + it.label);
+  }
+  $("#tr-in").value = ""; renderSugg(); $("#tr-in").blur();
+  renderFollowing();
+  openTracked(it.kind, it.key);
+}
+$("#tr-in").addEventListener("focus", () => { loadNames().then(renderSugg); loadCongress().then(renderSugg); });
+$("#tr-in").addEventListener("input", () => { TR.sel = 0; renderSugg(); });
+$("#tr-in").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!TR.items.length) return; TR.sel = (TR.sel + (e.key === "ArrowDown" ? 1 : -1) + TR.items.length) % TR.items.length; renderSugg(); }
+  else if (e.key === "Enter") { e.preventDefault(); pickTrack(TR.items[TR.sel]); }
+  else if (e.key === "Escape") { $("#tr-in").value = ""; renderSugg(); }
+});
+document.addEventListener("pointerdown", e => { if (!e.target.closest(".trackbox")) $("#tr-sugg").hidden = true; });
+document.addEventListener("click", e => {
+  const tri = e.target.closest("[data-tri]"); if (tri) { pickTrack(TR.items[+tri.dataset.tri]); return; }
+  const op = e.target.closest("[data-open]"); if (op) { openTracked(op.dataset.open, op.dataset.key); return; }
+  const un = e.target.closest("[data-unf]"); if (un) {
+    const k = un.dataset.key, kind = un.dataset.unf;
+    if (kind === "t") setSyms(S.syms.filter(x => x !== k)); else if (kind === "p") setPeople(S.people.filter(p => p.k !== k)); else setFollow(k, false);
+    renderFollowing(); return; }
+});
+document.addEventListener("change", e => { if (e.target.id === "only-cb") setOnly(e.target.checked); });
+
 /* history drawer for a ticker or a person, across every day loaded */
-function openDrawer(kind, key) {
-  const list = allTrades().filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
+function openDrawer(kind, key, ds) {
+  const src = ds ? ds.flatMap(d => CACHE[d]?.trades || []) : allTrades();
+  const list = src.filter(t => kind === "t" ? t.ticker === key : t.pkey === key)
     .filter(t => !t.deriv).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  const first = list[0] || allTrades().find(t => kind === "t" ? t.ticker === key : t.pkey === key);
+  const first = list[0] || src.find(t => kind === "t" ? t.ticker === key : t.pkey === key);
   const ok = list.filter(t => !t.suspect);
   const buys = ok.filter(t => t.code === "P").reduce((s, t) => s + t.value, 0);
   const sells = ok.filter(t => t.code === "S").reduce((s, t) => s + t.value, 0);
-  const watch = kind === "t" ? `<button class="btn" type="button" data-watch="${esc(key)}">${S.syms.includes(key) ? "Remove from my symbols" : "Add to my symbols"}</button>` : "";
+  const watch = kind === "t" ? `<button class="btn" type="button" data-watch="${esc(key)}">${S.syms.includes(key) ? "Following ✓" : "Follow"}</button>` : `<button class="btn" type="button" data-pwatch="${esc(key)}">${S.people.some(p => p.k === key) ? "Following ✓" : "Follow"}</button>`;
   const title = kind === "t" ? `${esc(key)} <span class="sub">${esc(first?.issuer || "")}</span>` : `${esc(first?.person || key)} <span class="sub">${esc(first?.role || "")}</span>`;
   const hold = kind === "t" ? rangeDays().flatMap(d => CACHE[d]?.holders || []).filter(h => h.ticker === key) : [];
   const root = $("#drawer-root");
   root.innerHTML = `<div class="scrim" data-close></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="History">
-      <div class="dh"><div><div class="label">${kind === "t" ? "Ticker history" : "Insider history"} · ${esc(rangeLabel())}</div><h2 style="margin-top:6px">${title}</h2></div>
+      <div class="dh"><div><div class="label">${kind === "t" ? "Ticker history" : "Insider history"} · ${ds ? "last 3 months" : esc(rangeLabel())}</div><h2 style="margin-top:6px">${title}</h2></div>
         <div class="row" style="justify-content:flex-end">${watch}<button class="btn" type="button" data-close>Close</button></div></div>
       <div class="db">
         <div class="tally" style="grid-template-columns:repeat(2,minmax(0,1fr))">
@@ -614,7 +745,7 @@ function openDrawer(kind, key) {
         <div class="tbl"><table><thead><tr>${kind === "t" ? "" : "<th>Ticker</th>"}<th>Insider</th><th>Role</th><th>Type</th><th>Trade date</th><th class="r">Shares</th><th class="r">Avg price</th><th class="r">Value</th><th>Filing</th></tr></thead>
           <tbody>${list.map(t => rowHtml(t, kind !== "t")).join("") || `<tr><td colspan="9" class="sub">No trades in this window.</td></tr>`}</tbody></table></div>
         ${hold.length ? `<div><div class="label" style="margin-bottom:8px">5% ownership filings</div>${hold.map(h => `<div class="sub">${h.filed} · ${esc(h.filer)} · ${esc(h.kind)}${h.pct != null ? " · " + h.pct.toFixed(1) + "%" : ""}</div>`).join("")}</div>` : ""}
-        <p class="note">Covers the filing dates you picked. Widen the dates to see more history.</p>
+        <p class="note">${ds ? "Every filing by this person in the last 3 months." : "Covers the filing dates you picked. Widen the dates to see more history."}</p>
         ${kind === "t" ? `<div id="d-congress"></div>` : ""}
       </div></aside>`;
   root.hidden = false;
@@ -661,7 +792,7 @@ function exportPdf() {
   if (!window.jspdf) { toast("The PDF tool didn't load. Check your connection and try again."); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
-  const day = rangeLabel() + (S.syms.length ? " · symbols: " + S.syms.join(", ") : " · all symbols");
+  const day = rangeLabel() + (FS().length ? " · symbols: " + FS().join(", ") : " · all symbols");
   doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Insider Alert", 40, 46);
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(90);
   doc.text(doc.splitTextToSize(`Form 4 filings, ${day}. Generated ${DATA.generated}. Source: SEC EDGAR.`, 710), 40, 64);
@@ -715,7 +846,7 @@ function members() {
 function setFollow(key, on) {
   C.follow = on ? [...new Set([...C.follow, key])] : C.follow.filter(k => k !== key);
   try { localStorage.setItem("ia-follow", JSON.stringify(C.follow)); } catch (e) {}
-  renderCongress();
+  renderFollowing(); renderCongress();
   toast(on ? "Following " + key.split("|")[0] : "Stopped following " + key.split("|")[0]);
 }
 const followBtn = (key) => `<button class="follow" type="button" data-follow="${esc(key)}" aria-pressed="${C.follow.includes(key)}">${C.follow.includes(key) ? "Following" : "Follow"}</button>`;
@@ -1246,9 +1377,8 @@ document.addEventListener("click", e => {
   if (e.target.id === "c-showmore") { C.limit += 300; renderCongress(); return; }
   const pr = e.target.closest("[data-pr]"); if (pr) { setPreset(+pr.dataset.pr); return; }
   const rm = e.target.closest("[data-rm]"); if (rm) { setSyms(S.syms.filter(x => x !== rm.dataset.rm)); return; }
-  const w = e.target.closest("[data-watch]"); if (w) { const k = w.dataset.watch; setSyms(S.syms.includes(k) ? S.syms.filter(x => x !== k) : [...S.syms, k]); w.textContent = S.syms.includes(k) ? "Remove from my symbols" : "Add to my symbols"; return; }
-  if (e.target.id === "sym-clear") { setSyms([]); return; }
-  if (e.target.closest("#symbox") && e.target.tagName !== "BUTTON") $("#sym-in").focus();
+  const w = e.target.closest("[data-watch]"); if (w) { const k = w.dataset.watch; setSyms(S.syms.includes(k) ? S.syms.filter(x => x !== k) : [...S.syms, k]); w.textContent = S.syms.includes(k) ? "Following ✓" : "Follow"; return; }
+  const pw = e.target.closest("[data-pwatch]"); if (pw) { const k = pw.dataset.pwatch, on = !S.people.some(p => p.k === k); const nm = (allTrades().find(t => t.pkey === k)?.person || NAMES.pmap?.get(k)?.[1] || k).split(" +")[0]; setPeople(on ? [...S.people, { k, n: nm }] : S.people.filter(p => p.k !== k)); pw.textContent = on ? "Following ✓" : "Follow"; toast(on ? "Following " + nm : "Stopped following " + nm); return; }
   const k = e.target.closest("#kind button"); if (k) { S.kind = k.dataset.k; try { localStorage.setItem("ia-kind", S.kind); } catch (x) {} renderTable(); return; }
   const th = e.target.closest("th[data-s]"); if (th) { const s = th.dataset.s; S.dir = S.sort === s ? -S.dir : (["value","shares","price","date"].includes(s) ? -1 : 1); S.sort = s; renderTable(); return; }
   const t = e.target.closest("[data-t]"); if (t && t.dataset.t) { openDrawer("t", t.dataset.t); return; }
@@ -1259,12 +1389,6 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 $("#q").addEventListener("input", e => { S.q = e.target.value; S.limit = 100; renderTable(); });
 $("#minv").addEventListener("change", e => { S.minv = +e.target.value; try { localStorage.setItem("ia-minv", S.minv); } catch (x) {} renderTable(); });
-$("#sym-in").addEventListener("keydown", e => {
-  if (e.key === "Enter" || e.key === "," || e.key === " ") { e.preventDefault(); addSyms(e.target.value); e.target.value = ""; }
-  else if (e.key === "Backspace" && !e.target.value && S.syms.length) setSyms(S.syms.slice(0, -1));
-});
-$("#sym-in").addEventListener("blur", e => { if (e.target.value.trim()) { addSyms(e.target.value); e.target.value = ""; } });
-$("#sym-in").addEventListener("paste", e => { const t = (e.clipboardData || window.clipboardData)?.getData("text"); if (t && /[\s,;]/.test(t.trim())) { e.preventDefault(); addSyms(t); } });
 $("#d-from").addEventListener("change", e => { if (e.target.value) { S.from = snap(e.target.value, 1); apply(); } });
 $("#d-to").addEventListener("change", e => { if (e.target.value) { S.to = snap(e.target.value, -1); apply(); } });
 /* move a picked calendar date onto the nearest filing day inside the range */
