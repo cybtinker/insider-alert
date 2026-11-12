@@ -570,6 +570,27 @@ def build_network(trades, holders, congress_rows, donations=(), window: int = NE
             "donations": sum(1 for e in out_links if e["kind"] == "donation"), "fec": bool(donations)}
 
 
+def name_index(trades, holders) -> dict:
+    """Search list for the Track box: every ticker and insider in the
+    published days, with the days each insider filed (newest 30) so the
+    page can load an insider's full history on demand."""
+    tick, ppl = {}, {}
+    for t in trades:
+        if t["ticker"]:
+            tick.setdefault(t["ticker"], t["issuer"])
+        e = ppl.get(t["pkey"])
+        if not e:
+            e = ppl[t["pkey"]] = {"n": t["person"].split(" +")[0], "r": t["role"], "t": t["ticker"], "d": set(), "last": ""}
+        e["d"].add(t["filed"])
+        if t["filed"] >= e["last"]:
+            e["last"], e["t"], e["r"] = t["filed"], t["ticker"] or e["t"], t["role"]
+    for h in holders:
+        if h["ticker"]:
+            tick.setdefault(h["ticker"], h["issuer"])
+    return {"t": sorted([k, v] for k, v in tick.items()),
+            "p": [[k, e["n"], e["r"], e["t"], sorted(e["d"])[-30:]] for k, e in ppl.items()]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=65, help="filing days to publish (about 3 months)")
@@ -606,6 +627,7 @@ def main():
     signals = cross_signals(trades, holders, congress["trades"], days[-1])
     network = build_network(trades, holders, congress["trades"], load_donations(con))
     preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
+               "names": name_index([t for t in trades if t["filed"] in pdays], [h for h in holders if h["filed"] in pdays]),
                "congress": congress, "signals": signals, "network": network}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
@@ -628,6 +650,8 @@ def main():
         json.dump({**congress, "generated": generated}, f, separators=(",", ":"))
     with open(os.path.join(site, "network.json"), "w", encoding="utf-8") as f:
         json.dump({**network, "generated": generated}, f, separators=(",", ":"))
+    with open(os.path.join(site, "names.json"), "w", encoding="utf-8") as f:
+        json.dump(name_index(trades, holders), f, separators=(",", ":"))
     for d, payload in by_day.items():
         with open(os.path.join(site, "days", f"{d}.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
