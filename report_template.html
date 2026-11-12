@@ -116,6 +116,11 @@ h2 { font: 700 17px/1.2 var(--f-display); margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.src { background: var(--bg); color: var(--ink, inherit); border: 1px solid var(--line); font-weight: 500; }
+.item .why { font-size: 13px; line-height: 1.45; }
+.item .why { overflow-wrap: anywhere; }
+.rowchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.rowchips .chip { font-size: 11px; padding: 1px 6px; }
 .meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 .meta a { color: var(--muted); }
 .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 20px; color: var(--muted); }
@@ -198,6 +203,11 @@ footer { color: var(--muted); font-size: 12px; }
     <div class="tally" id="tally"></div>
   </section>
 
+  <section id="sig-sec" hidden>
+    <div class="sec-head"><h2>Cross-signals</h2><span class="sub" id="sig-line">Tickers where insiders, 5% holders and members of Congress moved the same way in the last 30 days</span></div>
+    <div class="docket" id="signals"></div>
+  </section>
+
   <section>
     <div class="sec-head"><h2>Worth a look</h2><span class="sub">Open-market buys, insiders buying together, and very large sales</span></div>
     <div class="docket" id="docket"></div>
@@ -270,6 +280,11 @@ footer { color: var(--muted); font-size: 12px; }
           <button type="button" data-ct="Buy" aria-pressed="false">Buys</button>
           <button type="button" data-ct="Sell" aria-pressed="false">Sells</button>
         </div>
+        <div class="seg" id="c-flag" role="group" aria-label="Flags">
+          <button type="button" data-cf="all" aria-pressed="true">Any</button>
+          <button type="button" data-cf="cmte" aria-pressed="false">Committee link</button>
+          <button type="button" data-cf="late" aria-pressed="false">Filed late</button>
+        </div>
       </div>
       <label class="check" id="c-mine-wrap" hidden><input type="checkbox" id="c-mine"> Only my symbols</label>
     </div>
@@ -278,6 +293,17 @@ footer { color: var(--muted); font-size: 12px; }
   <section>
     <div class="sec-head"><h1 id="c-headline">Congress stock trades</h1><span class="sub" id="c-line"></span></div>
     <div class="tally" id="c-tally"></div>
+  </section>
+
+  <section id="c-timing-sec" hidden>
+    <div class="sec-head"><h2>Committee timing</h2><span class="sub" id="c-timing-line">Trades made shortly before a hearing or markup in the member's own committee, on an industry that committee oversees</span></div>
+    <div class="docket" id="c-timing"></div>
+    <div class="more" id="c-timing-more"></div>
+  </section>
+
+  <section id="c-late-sec" hidden>
+    <div class="sec-head"><h2>Late filers</h2><span class="sub">Trades reported more than 45 days after they were made, the STOCK Act deadline</span></div>
+    <div class="people" id="c-late"></div>
   </section>
 
   <section id="c-people-sec" hidden>
@@ -432,7 +458,7 @@ function renderHolders() {
     <td><a href="${esc(h.url)}" target="_blank" rel="noopener">View ↗</a></td></tr>`).join("") ||
     `<tr><td colspan="5" class="sub">No 13D or 13G filings in these dates.</td></tr>`;
 }
-function renderAll() { renderControls(); renderTally(); renderDocket(); renderTable(); renderHolders(); }
+function renderAll() { renderControls(); renderTally(); renderSignals(); renderDocket(); renderTable(); renderHolders(); }
 
 /* load every day in the range, then draw */
 let loadSeq = 0;
@@ -547,7 +573,7 @@ function exportPdf() {
 
 
 /* ---------- Congress ---------- */
-const C = { data: null, loading: null, days: 90, show: "all", tx: "all", q: "", mine: false, follow: [], limit: 150 };
+const C = { data: null, loading: null, days: 90, show: "all", tx: "all", flag: "all", q: "", mine: false, follow: [], limit: 150, tlimit: 9 };
 try { const f = JSON.parse(localStorage.getItem("ia-follow") || "[]"); if (Array.isArray(f)) C.follow = f; const d = +localStorage.getItem("ia-cdays"); if (d) C.days = d; } catch (e) {}
 function loadCongress() {
   if (C.data) return Promise.resolve(C.data);
@@ -566,6 +592,8 @@ function cRows() {
     if (C.tx === "Buy" && t.tx !== "Buy") return false;
     if (C.tx === "Sell" && !/Sell|Partial/.test(t.tx)) return false;
     if (C.mine && S.syms.length && !S.syms.includes(t.ticker)) return false;
+    if (C.flag === "cmte" && !t.flag) return false;
+    if (C.flag === "late" && !t.late) return false;
     if (q && !(t.member.toLowerCase().includes(q) || (t.state && t.state.toLowerCase().startsWith(q)) || (q === "senate" && t.chamber === "Senate") || t.ticker.toLowerCase() === q || (t.asset || "").toLowerCase().includes(q))) return false;
     return true;
   }).sort((a, b) => b.filed.localeCompare(a.filed) || (b.date || "").localeCompare(a.date || ""));
@@ -590,12 +618,64 @@ function cRowHtml(t, withMember = true) {
   return `<tr>
     <td class="num">${t.filed}</td>
     ${withMember ? `<td><button class="link" type="button" data-m="${esc(t.mkey)}">${esc(mlabel(t))}</button></td>` : ""}
-    <td>${tk}<span class="issuer" title="${esc(t.asset)}" style="display:inline">${esc(t.asset)}</span></td>
+    <td>${tk}<span class="issuer" title="${esc(t.asset)}" style="display:inline">${esc(t.asset)}</span>${rowFlags(t)}</td>
     <td><span class="pill ${esc((t.tx || "").split(" ")[0])}">${esc(t.tx)}</span></td>
     <td class="r num">${amt(t)}</td>
     <td class="num">${t.date || "–"}</td>
     <td>${esc(t.owner || "–")}</td>
     <td><a href="${esc(t.url)}" target="_blank" rel="noopener">PDF ↗</a></td></tr>`;
+}
+function rowFlags(t) {
+  const c = [];
+  if (t.flag === "timing") { const m = t.ctx.meet[0]; c.push(`<span class="chip warn" title="${esc(m.cmte + " " + m.type.toLowerCase() + " on " + m.date + ": " + m.title)}">${esc(gapText(m.days))} ${esc(m.type.toLowerCase())}</span>`); }
+  else if (t.flag === "overlap") c.push(`<span class="chip" title="${esc("Sits on " + t.ctx.cmte.join(", ") + ", which oversees " + t.ctx.ind)}">Own committee's industry</span>`);
+  if (t.late) c.push(`<span class="chip warn" title="Traded ${esc(t.date)}, disclosed ${esc(t.filed)}">Filed ${t.late} days later</span>`);
+  return c.length ? `<div class="rowchips">${c.join("")}</div>` : "";
+}
+const gapText = d => d > 0 ? `${d} day${d === 1 ? "" : "s"} before` : d < 0 ? `${-d} day${d === -1 ? "" : "s"} after` : "Same day as";
+const shortCmte = n => n.replace(/^(House|Senate) (Committee on )?(the )?/, "").replace(/^Committee on (the )?/, "");
+function timingCard(t) {
+  const sell = /Sell|Partial/.test(t.tx), m = t.ctx.meet[0];
+  const bills = m.bills.slice(0, 3).map(b => `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.label)}</a>`).join(", ");
+  return `<article class="item ${sell ? "s" : ""}">
+    <div class="top"><button class="tk" type="button" data-t="${esc(t.ticker)}">${esc(t.ticker)}</button><span class="amt ${sell ? "sell" : "buy"}">${sell ? "−" : "+"}${amt(t)}</span></div>
+    <div class="who"><button class="link" type="button" data-m="${esc(t.mkey)}">${esc(mlabel(t))}</button> <span class="role">· ${esc(t.owner || "")}</span></div>
+    <div class="why">${sell ? "Sold" : "Bought"} ${esc(t.asset)} on ${fmtD(t.date)}, <b>${esc(gapText(m.days).toLowerCase())}</b> the ${esc(shortCmte(m.cmte))} ${esc(m.type.toLowerCase())} on ${fmtD(m.date)}: <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title.length > 140 ? m.title.slice(0, 137) + "…" : m.title)}</a>${bills ? ` (${bills})` : ""}.</div>
+    <div class="chips"><span class="chip">Committee oversees ${esc(t.ctx.ind || "this industry")}</span>${t.ctx.meet.length > 1 ? `<span class="chip src">+${t.ctx.meet.length - 1} more meeting${t.ctx.meet.length > 2 ? "s" : ""} nearby</span>` : ""}${t.late ? `<span class="chip warn">Filed ${t.late} days later</span>` : ""}</div>
+    <div class="meta"><span>Disclosed ${fmtD(t.filed)}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">Filing ↗</a></div>
+  </article>`;
+}
+function renderTiming(rows) {
+  const tm = rows.filter(t => t.flag === "timing").sort((a, b) => (b.hi || b.lo || 0) - (a.hi || a.lo || 0) || Math.abs(a.ctx.meet[0].days) - Math.abs(b.ctx.meet[0].days));
+  const has = (C.data.ctx?.meetings || 0) > 0;
+  $("#c-timing-sec").hidden = !tm.length && !has;
+  $("#c-timing").innerHTML = tm.slice(0, C.tlimit).map(timingCard).join("") ||
+    `<div class="empty">No trades in this view landed near a meeting of the member's own committee.</div>`;
+  $("#c-timing-more").innerHTML = tm.length > C.tlimit ? `<span>${fmtN(tm.length - C.tlimit)} more. Pick “Committee link” above to list them all.</span><button class="btn" type="button" id="c-tmore">Show more</button>` : "";
+  const lateBy = new Map();
+  rows.filter(t => t.late).forEach(t => { const e = lateBy.get(t.mkey) || { t, n: 0, max: 0 }; e.n++; e.max = Math.max(e.max, t.late); lateBy.set(t.mkey, e); });
+  const late = [...lateBy.values()].sort((a, b) => b.n - a.n || b.max - a.max).slice(0, 8);
+  $("#c-late-sec").hidden = !late.length;
+  $("#c-late").innerHTML = late.map(e => `<article class="person"><div class="top"><button class="tk" type="button" data-m="${esc(e.t.mkey)}" style="font-size:16px">${esc(mlabel(e.t))}</button><span class="chip warn">${e.n} late</span></div>
+    <div class="note">Longest gap ${e.max} days between trade and disclosure.</div></article>`).join("");
+}
+function renderSignals() {
+  const sg = (DATA.signals || []).filter(x => symOk(x.ticker));
+  $("#sig-sec").hidden = !sg.length;
+  const line = (k, v, side) => {
+    const n = new Set(v.map(x => x.who)).size;
+    if (k === "insider") return `${n} insider${n > 1 ? "s" : ""} ${side === "buy" ? "bought" : "sold"} ${money(v.reduce((s, x) => s + x.value, 0))}`;
+    if (k === "fund") return `13D by ${esc(v[0].who)}${v[0].pct != null ? " (" + v[0].pct.toFixed(1) + "%)" : ""}${n > 1 ? ` +${n - 1}` : ""}`;
+    const tm = v.some(x => x.flag === "timing") ? ", near own committee meeting" : "";
+    return `${n} member${n > 1 ? "s" : ""} of Congress ${side === "buy" ? "bought" : "sold"}${tm}`;
+  };
+  $("#signals").innerHTML = sg.slice(0, 9).map(x => `
+    <article class="item ${x.side === "sell" ? "s" : ""}">
+      <div class="top"><button class="tk" type="button" data-t="${esc(x.ticker)}">${esc(x.ticker)}</button><span class="amt ${x.side === "sell" ? "sell" : "buy"}">${x.n} sources ${x.side === "sell" ? "selling" : "buying"}</span></div>
+      <div class="sub">${esc(x.issuer || "")}</div>
+      <div class="why">${Object.entries(x.sources).map(([k, v]) => line(k, v, x.side)).join(" · ")}</div>
+      <div class="meta"><span>Latest ${fmtD(x.last)}</span></div>
+    </article>`).join("");
 }
 function renderCongress() {
   if (!C.data) { $("#c-line").textContent = "Loading…"; return; }
@@ -617,6 +697,7 @@ function renderCongress() {
   $("#c-line").textContent = (hasSen ? "House and Senate" : "House of Representatives") + " · by disclosure date";
   $("#c-note").textContent = hasSen ? "Members report trades up to 45 days after making them, in dollar ranges rather than exact amounts. Senate trades are refreshed from a home computer, so they can lag a day or two."
     : "House members only for now. Members report trades up to 45 days after making them, in dollar ranges rather than exact amounts.";
+  $("#c-note").textContent += " Committee links match the company's SEC industry code to what the member's committees oversee, with meeting dates from Congress.gov. They are approximate: worth a look, not evidence of wrongdoing.";
   $("#c-tally").innerHTML = `
     <div><span class="label">Buys</span><span class="v buy">${fmtN(buys.length)}</span><span class="n">up to ${money(buys.reduce((s, t) => s + (t.hi || t.lo || 0), 0))}</span></div>
     <div><span class="label">Sales</span><span class="v sell">${fmtN(sells.length)}</span><span class="n">up to ${money(sells.reduce((s, t) => s + (t.hi || t.lo || 0), 0))}</span></div>
@@ -635,6 +716,8 @@ function renderCongress() {
         <div class="note">${last ? `Latest: ${esc(last.tx)} ${esc(last.ticker || last.asset)} (${amt(last)}), disclosed ${fmtD(last.filed)}` : "No trades disclosed in the last year."}</div></article>`;
     }).join("");
   }
+  renderTiming(rows);
+  document.querySelectorAll("[data-cf]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cf === C.flag));
   $("#c-count").textContent = `${fmtN(rows.length)} rows`;
   $("#c-rows").innerHTML = rows.slice(0, C.limit).map(t => cRowHtml(t)).join("") ||
     `<tr><td colspan="8" class="sub">No trades match. ${C.show === "follow" && !C.follow.length ? "You aren't following anyone yet." : "Try a longer period or clear the search."}</td></tr>`;
@@ -663,9 +746,9 @@ function openMember(key) {
   root.hidden = false; root.querySelector(".drawer button").focus();
 }
 function congressCsv(rows) {
-  const head = ["disclosed","trade_date","member","state","chamber","owner","ticker","asset","asset_type","type","amount_min","amount_max","filing_pdf"];
+  const head = ["disclosed","trade_date","member","state","chamber","owner","ticker","asset","asset_type","type","amount_min","amount_max","days_to_disclose_if_late","committee_flag","nearest_committee_meeting","filing_pdf"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  return [head.join(",")].concat(rows.map(t => [t.filed, t.date, t.member, t.state, t.chamber, t.owner, t.ticker, t.asset, t.atype, t.tx, t.lo, t.hi, t.url].map(q).join(","))).join("\n");
+  return [head.join(",")].concat(rows.map(t => [t.filed, t.date, t.member, t.state, t.chamber, t.owner, t.ticker, t.asset, t.atype, t.tx, t.lo, t.hi, t.late || "", t.flag || "", t.ctx?.meet?.[0] ? `${t.ctx.meet[0].date} ${t.ctx.meet[0].cmte} ${t.ctx.meet[0].type}: ${t.ctx.meet[0].title}` : "", t.url].map(q).join(","))).join("\n");
 }
 function congressPdf() {
   if (!window.jspdf) { toast("The PDF tool didn't load. Check your connection and try again."); return; }
@@ -695,6 +778,8 @@ document.addEventListener("click", e => {
   const cd = e.target.closest("[data-cd]"); if (cd) { C.days = +cd.dataset.cd; C.limit = 150; try { localStorage.setItem("ia-cdays", C.days); } catch (x) {} renderCongress(); return; }
   const cs = e.target.closest("[data-cs]"); if (cs) { C.show = cs.dataset.cs; C.limit = 150; renderCongress(); return; }
   const ct = e.target.closest("[data-ct]"); if (ct) { C.tx = ct.dataset.ct; C.limit = 150; renderCongress(); return; }
+  const cf = e.target.closest("[data-cf]"); if (cf) { C.flag = cf.dataset.cf; C.limit = 150; renderCongress(); return; }
+  if (e.target.id === "c-tmore") { C.tlimit += 12; renderCongress(); return; }
   if (e.target.id === "c-showmore") { C.limit += 300; renderCongress(); return; }
   const pr = e.target.closest("[data-pr]"); if (pr) { setPreset(+pr.dataset.pr); return; }
   const rm = e.target.closest("[data-rm]"); if (rm) { setSyms(S.syms.filter(x => x !== rm.dataset.rm)); return; }

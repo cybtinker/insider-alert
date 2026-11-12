@@ -7,7 +7,8 @@ A daily web app of SEC insider trades (Form 4) and 5% ownership filings (Schedul
 - `collector.py` downloads each business day's EDGAR form index, then fetches and parses every Form 4 and 13D/13G into `insider.db` (SQLite). It stays under the SEC's 10 requests per second limit.
 - `congress.py` downloads the House Clerk's yearly disclosure index and parses each e-filed Periodic Transaction Report (PDF) into `congress_trades`. Scanned paper filings are kept as links. The Senate's eFD site refuses cloud servers, so `senate.py` runs on a home PC instead.
 - `senate.py` (run daily on your own computer by `setup-senate.ps1`) accepts the Senate eFD terms for personal use, downloads new PTRs, saves `data/senate.json` and pushes it. That push rebuilds the site.
-- `report.py` ranks the trades (open-market buys, CEO/CFO buys, several insiders buying together, sales over $10M) and builds `site/`: `index.html`, `data.json`, and the install files.
+- `committees.py` loads each member's committee seats (from the public congress-legislators dataset), committee hearings and markups with the bills they took up (from the Congress.gov API), and the SEC industry code of every ticker members traded.
+- `report.py` ranks the trades (open-market buys, CEO/CFO buys, several insiders buying together, sales over $10M) and builds `site/`: `index.html`, `data.json`, and the install files. It also adds three things competitors don't combine: cross-signals (a ticker where insiders, 13D filers and members of Congress moved the same way in 30 days), committee timing flags (a member traded within 30 days before, or 7 after, a meeting of their own committee that oversees the company's industry), and late-filing flags (trades disclosed more than 45 days after they were made).
 - `.github/workflows/daily.yml` runs both on GitHub Actions on weekday nights and mornings, and publishes `site/` to GitHub Pages. The database is kept between runs in the Actions cache. If the cache is lost, the next run downloads the recent days again.
 
 ## One-time setup
@@ -15,6 +16,7 @@ A daily web app of SEC insider trades (Form 4) and 5% ownership filings (Schedul
 1. Settings → Pages → Source: **GitHub Actions**.
 2. Settings → Secrets and variables → Actions → Secrets → New repository secret (a secret, so it stays out of the public run logs):
    `SEC_USER_AGENT` = `InsiderAlert your-email@example.com` (the SEC requires a contact email).
+   `CONGRESS_API_KEY` = a free key from https://api.congress.gov/sign-up/ (for committee meeting dates; without it the report only shows industry overlap).
 3. Actions → Daily insider report → Run workflow (the first run backfills about two weeks; run it once with days = 95 to fill three months).
 
 ## Run locally
