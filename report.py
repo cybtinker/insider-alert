@@ -306,13 +306,13 @@ def add_context(con, rows: list[dict]) -> dict:
                 full_names[code] = name
     cache = {}
     for r in rows:
-        if r.get("paper") or not r.get("ticker") or r["ticker"] not in sic:
-            continue
         key = r["mkey"]
         if key not in cache:
             cache[key] = who(r)
         p = cache[key]
-        if not p:
+        if p:
+            r["bio"] = p["bio"]
+        if not p or r.get("paper") or not r.get("ticker") or r["ticker"] not in sic:
             continue
         s, desc = sic[r["ticker"]]
         mine = {c[:4] for c, _, _ in seats.get(p["bio"], [])}
@@ -382,6 +382,194 @@ def cross_signals(trades, holders, congress_rows, end: str, days: int = 30) -> l
     return out[:24]
 
 
+# ------------------------------------------------------------ relationship network
+
+NET_WINDOW = 30           # an insider and a member trading the same stock within this many days
+
+
+def _side(code_or_tx: str) -> str | None:
+    if code_or_tx in ("P", "Buy"):
+        return "buy"
+    if code_or_tx == "S" or re.search("Sell|Partial", code_or_tx or ""):
+        return "sell"
+    return None
+
+
+def load_donations(con) -> list[dict]:
+    """Insider -> member campaign contributions that fec.py matched."""
+    try:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute("""
+            SELECT d.*, l.name AS member, l.chamber, l.state, c.name AS insider, c.issuer
+            FROM fec_donations d JOIN legislators l ON l.bioguide = d.bioguide
+            LEFT JOIN fec_checked c ON c.owner_key = d.owner_key
+            ORDER BY d.date DESC""")]
+    except sqlite3.OperationalError:
+        return []
+
+
+def build_network(trades, holders, congress_rows, donations=(), window: int = NET_WINDOW) -> dict:
+    """A graph of people and companies linked by public filings.
+
+    Nodes are members of Congress, company insiders, 13D filers (funds) and
+    the companies they traded. Only companies that a member of Congress
+    traded *and* an insider or fund also traded are kept, because those are
+    the only places where the two groups meet.
+
+    Links:
+      trade    person -> company (open-market buys/sells, 13D stakes)
+      overlap  member <-> insider: same stock, same direction, trade dates
+               within `window` days of each other
+      oversees member -> company: the trade falls under one of the member's
+               committees (from add_context)
+      donation insider -> member: FEC individual contributions (from fec.py)
+    These show overlap in public records, not that anyone knows anyone."""
+    import datetime as _dt
+
+    def day(s):
+        try:
+            return _dt.date.fromisoformat(s)
+        except (TypeError, ValueError):
+            return None
+
+    # Company-insider trades: open market only, no derivatives, no bad prices.
+    ins = defaultdict(list)          # ticker -> [trade]
+    names = {}
+    for t in trades:
+        side = _side(t["code"])
+        if not side or t["deriv"] or t["suspect"] or not t["ticker"] or t["value"] < 10_000:
+            continue
+        ins[t["ticker"]].append({**t, "side": side})
+        names[t["ticker"]] = names.get(t["ticker"]) or t["issuer"]
+    funds = defaultdict(list)
+    for h in holders:
+        if h["ticker"] and "13D" in h["form"]:
+            funds[h["ticker"]].append(h)
+            names[h["ticker"]] = names.get(h["ticker"]) or h["issuer"]
+    # Members' stock trades on the same tickers. Member trade dates reach
+    # further back than the insider data, so skip anything older than it.
+    first = min((t["filed"] for v in ins.values() for t in v), default=None)
+    if first:
+        first = (_dt.date.fromisoformat(first) - _dt.timedelta(days=window)).isoformat()
+    mem = defaultdict(list)
+    for r in congress_rows:
+        side = _side(r.get("tx"))
+        tk = (r.get("ticker") or "").upper()
+        if r.get("paper") or not side or not tk or tk not in ins and tk not in funds:
+            continue
+        if first and (r.get("date") or r["filed"]) < first:
+            continue
+        mem[tk].append({**r, "side": side})
+
+    nodes, links = {}, {}
+
+    def node(nid, kind, label, **extra):
+        n = nodes.setdefault(nid, {"id": nid, "kind": kind, "label": label, "buy": 0, "sell": 0, "n": 0, **extra})
+        return n
+
+    def link(a, b, kind, **extra):
+        key = (a, b, kind) if a < b or kind != "overlap" else (b, a, kind)
+        e = links.setdefault(key, {"s": key[0], "t": key[1], "kind": kind, "ev": [], **extra})
+        return e
+
+    for tk, rows in mem.items():
+        c = node("c:" + tk, "company", tk, name=names.get(tk, ""))
+        for r in rows:
+            m = node("m:" + r["mkey"], "member", r["member"], chamber=r["chamber"],
+                     state=(r.get("state") or "")[:2], mkey=r["mkey"])
+            m["n"] += 1; c["n"] += 1
+            m[r["side"]] += 1
+            e = link(m["id"], c["id"], "trade")
+            e["ev"].append({"side": r["side"], "date": r.get("date"), "filed": r["filed"],
+                            "lo": r.get("lo"), "hi": r.get("hi"), "url": r["url"], "flag": r.get("flag")})
+            if r.get("ctx"):
+                o = link(m["id"], c["id"], "oversees", cmte=r["ctx"]["cmte"], ind=r["ctx"]["ind"])
+                if r.get("flag") == "timing":
+                    o["timing"] = True
+                    o["meet"] = (o.get("meet") or []) + [x for x in r["ctx"]["meet"] if x not in (o.get("meet") or [])]
+        for t in ins.get(tk, ()):
+            p = node("i:" + str(t["pkey"]), "insider", t["person"], role=t["role"], pkey=t["pkey"])
+            p[t["side"]] += 1; p["n"] += 1; c["n"] += 1
+            e = link(p["id"], c["id"], "trade")
+            e["ev"].append({"side": t["side"], "date": t["date"], "filed": t["filed"],
+                            "value": t["value"], "url": t["url"]})
+            # Same stock, same direction, close in time -> a direct overlap link.
+            td = day(t["date"] or t["filed"])
+            for r in rows:
+                rd = day(r.get("date") or r["filed"])
+                if r["side"] != t["side"] or not td or not rd:
+                    continue
+                gap = (td - rd).days
+                if abs(gap) <= window:
+                    o = link("m:" + r["mkey"], p["id"], "overlap")
+                    o["ev"].append({"ticker": tk, "side": t["side"], "mdate": r.get("date") or r["filed"],
+                                    "idate": t["date"] or t["filed"], "gap": gap,
+                                    "murl": r["url"], "iurl": t["url"], "value": t["value"],
+                                    "lo": r.get("lo"), "hi": r.get("hi")})
+        for h in funds.get(tk, ()):
+            f = node("f:" + _norm(h["filer"]), "fund", h["filer"])
+            f["buy"] += 1; f["n"] += 1; c["n"] += 1
+            e = link(f["id"], c["id"], "trade")
+            e["ev"].append({"side": "buy", "date": h["filed"], "filed": h["filed"],
+                            "pct": h["pct"], "url": h["url"]})
+
+    # Campaign donations: insider -> member. Members who didn't trade a
+    # linked stock get a node keyed by their Bioguide id.
+    by_bio = {}
+    for r in congress_rows:
+        if r.get("bio") and "m:" + r["mkey"] in nodes:
+            by_bio.setdefault(r["bio"], "m:" + r["mkey"])
+    people = {}
+    for t in trades:
+        people.setdefault(str(t["pkey"]), t)
+    for d in donations:
+        mid = by_bio.get(d["bioguide"]) or "m:bio:" + d["bioguide"]
+        if mid not in nodes:
+            node(mid, "member", d["member"], chamber=d["chamber"], state=d["state"], mkey=None)
+        iid = "i:" + str(d["owner_key"])
+        if iid not in nodes:
+            t = people.get(str(d["owner_key"]))
+            node(iid, "insider", t["person"] if t else title_case(d.get("insider") or d.get("donor") or ""),
+                 role=t["role"] if t else (d.get("issuer") or ""),
+                 pkey=d["owner_key"] if t else None)
+        e = link(iid, mid, "donation")
+        e["ev"].append({"date": d["date"], "amount": d["amount"], "committee": d["committee"],
+                        "employer": d["employer"], "occupation": d["occupation"], "url": d["url"]})
+
+    # Keep only companies where Congress meets an insider or fund.
+    keep = {n["id"] for n in nodes.values() if n["kind"] == "company"
+            and any(e["t"] == n["id"] and e["s"][:2] in ("i:", "f:") for e in links.values())}
+    out_links = []
+    for e in links.values():
+        if e["kind"] in ("trade", "oversees") and e["t"] not in keep:
+            continue
+        if e["kind"] == "donation":
+            e["ev"].sort(key=lambda x: x["date"] or "", reverse=True)
+            e["w"] = len(e["ev"])
+            e["total"] = round(sum(x["amount"] or 0 for x in e["ev"]))
+            e["ev"] = e["ev"][:12]
+        elif e["kind"] == "overlap":
+            # One evidence row per stock and pair of dates is plenty.
+            seen, ev = set(), []
+            for x in sorted(e["ev"], key=lambda x: abs(x["gap"])):
+                k = (x["ticker"], x["mdate"], x["idate"])
+                if k not in seen:
+                    seen.add(k); ev.append(x)
+            e["ev"] = ev[:12]
+            e["w"] = len({x["ticker"] for x in ev})
+            e["best"] = min(abs(x["gap"]) for x in ev)
+        else:
+            e["ev"].sort(key=lambda x: x.get("date") or x.get("filed") or "", reverse=True)
+            e["w"] = len(e["ev"])
+            e["ev"] = e["ev"][:12]
+        out_links.append(e)
+    used = {x for e in out_links for x in (e["s"], e["t"])}
+    out_nodes = [n for n in nodes.values() if n["id"] in used]
+    return {"nodes": out_nodes, "links": out_links, "window": window,
+            "since": first, "overlaps": sum(1 for e in out_links if e["kind"] == "overlap"),
+            "donations": sum(1 for e in out_links if e["kind"] == "donation"), "fec": bool(donations)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=65, help="filing days to publish (about 3 months)")
@@ -416,8 +604,9 @@ def main():
     congress["ctx"] = {**ctx_stats, "late_days": LATE_DAYS,
                        "window": [WINDOW_BEFORE, WINDOW_AFTER]}
     signals = cross_signals(trades, holders, congress["trades"], days[-1])
+    network = build_network(trades, holders, congress["trades"], load_donations(con))
     preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
-               "congress": congress, "signals": signals}
+               "congress": congress, "signals": signals, "network": network}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
         f.write(tpl.replace("/*__DATA__*/null", blob))
@@ -437,6 +626,8 @@ def main():
         json.dump({"days": days, "generated": generated, "signals": signals}, f, separators=(",", ":"))
     with open(os.path.join(site, "congress.json"), "w", encoding="utf-8") as f:
         json.dump({**congress, "generated": generated}, f, separators=(",", ":"))
+    with open(os.path.join(site, "network.json"), "w", encoding="utf-8") as f:
+        json.dump({**network, "generated": generated}, f, separators=(",", ":"))
     for d, payload in by_day.items():
         with open(os.path.join(site, "days", f"{d}.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
@@ -454,7 +645,8 @@ def main():
     print(f"{len(congress['trades'])} congressional trade rows since {since}; "
           f"{sum(1 for r in congress['trades'] if r.get('flag') == 'timing')} timing flags, "
           f"{sum(1 for r in congress['trades'] if r.get('flag') == 'overlap')} industry overlaps, "
-          f"{sum(1 for r in congress['trades'] if r.get('late'))} late filings; {len(signals)} cross-signals")
+          f"{sum(1 for r in congress['trades'] if r.get('late'))} late filings; {len(signals)} cross-signals; "
+          f"network {len(network['nodes'])} nodes, {len(network['links'])} links, {network['overlaps']} overlaps, {network['donations']} donation links")
     print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days "
           f"({days[0]} to {days[-1]}) -> {site}")
 
