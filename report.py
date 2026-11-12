@@ -244,7 +244,7 @@ JURISDICTION = {
     "SSEG": _ENERGY, "SSHR": _HEALTH,
 }
 LATE_DAYS = 45            # STOCK Act: report within 45 days of the trade
-WINDOW_BEFORE, WINDOW_AFTER = 30, 7   # trade up to 30 days before, or 7 after, a committee meeting
+WINDOW_BEFORE, WINDOW_AFTER = 14, 3   # trade up to 14 days before, or 3 after, a markup or bill meeting
 
 
 def _covers(code: str, sic) -> bool:
@@ -326,7 +326,9 @@ def add_context(con, rows: list[dict]) -> dict:
             for c in over:
                 for m in meetings.get(c, ()):
                     gap = (_dt.date.fromisoformat(m["date"]) - td).days
-                    if -WINDOW_AFTER <= gap <= WINDOW_BEFORE:
+                    # Only markups and meetings that took up a bill: committees hold
+                    # general hearings so often that nearly every trade would match.
+                    if -WINDOW_AFTER <= gap <= WINDOW_BEFORE and (m["type"] == "Markup" or m["bills"]):
                         near.append({**m, "days": gap, "cmte": full_names.get(c, c)})
             # Markups and hearings with bills first, then the closest in time.
             near.sort(key=lambda m: (m["type"] != "Markup", not m["bills"], abs(m["days"])))
