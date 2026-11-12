@@ -61,7 +61,10 @@ jobs:
           pip install --quiet pyyaml
           python committees.py
       - name: Collect campaign donations from insiders to members (FEC)
+        # Donations are extra context: never let this step stop the report.
+        continue-on-error: true
         env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           INSIDER_DB: ${{ github.workspace }}/insider.db
         run: python fec.py
