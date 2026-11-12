@@ -52,6 +52,14 @@ jobs:
         run: |
           pip install --quiet pdfplumber
           python congress.py
+      - name: Collect committee assignments, meetings and industries
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          CONGRESS_API_KEY: ${{ secrets.CONGRESS_API_KEY }}
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: |
+          pip install --quiet pyyaml
+          python committees.py
       - name: Save database
         if: always()
         uses: actions/cache/save@v4

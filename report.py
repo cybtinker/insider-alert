@@ -217,6 +217,171 @@ def load_senate(since: str) -> list[dict]:
     return rows
 
 
+# ------------------------------------------------------------ committee context
+
+# Which industries each full committee oversees, as SEC SIC code ranges.
+# Broad committees (Appropriations, Judiciary, Oversight...) are left out
+# because they would match almost everything.
+_DEFENSE = [(3480, 3489), (3720, 3729), (3730, 3732), (3760, 3769), (3795, 3795), (3812, 3812)]
+_HEALTH = [(2833, 2836), (3841, 3845), (5122, 5122), (5912, 5912), (6324, 6324), (8000, 8099)]
+_FINANCE = [(6000, 6799)]
+_FARM = [(100, 999), (2000, 2099), (2870, 2879), (3523, 3523), (5150, 5159)]
+_ENERGY = [(1000, 1499), (2900, 2999), (4610, 4619), (4900, 4991)]
+_TELECOM_TECH = [(3570, 3579), (3660, 3679), (4800, 4899), (7370, 7379)]
+_TRANSPORT = [(1600, 1629), (3710, 3716), (3720, 3729), (3740, 3743), (4000, 4799)]
+JURISDICTION = {
+    "HSAG": _FARM, "SSAF": _FARM,
+    "HSAS": _DEFENSE, "SSAS": _DEFENSE,
+    "HSBA": _FINANCE, "SSBK": _FINANCE,
+    "HSIF": _HEALTH + _ENERGY + _TELECOM_TECH,
+    "HSHM": _DEFENSE + [(7370, 7379)], "SSGA": [(3812, 3812), (7370, 7379)],
+    "HSII": [(1000, 1499), (2400, 2499)],
+    "HSPW": _TRANSPORT + [(4940, 4959)], "SSEV": [(1600, 1629), (4940, 4959), (4900, 4991)],
+    "HSSY": [(3720, 3729), (3760, 3769), (3670, 3679)],
+    "HSWM": [(6300, 6411), (8000, 8099)], "SSFI": [(2833, 2836), (6300, 6411), (8000, 8099)],
+    "HSVR": [(8000, 8099)], "SSVA": [(8000, 8099)],
+    "SSCM": _TRANSPORT + _TELECOM_TECH + [(3760, 3769)],
+    "SSEG": _ENERGY, "SSHR": _HEALTH,
+}
+LATE_DAYS = 45            # STOCK Act: report within 45 days of the trade
+WINDOW_BEFORE, WINDOW_AFTER = 30, 7   # trade up to 30 days before, or 7 after, a committee meeting
+
+
+def _covers(code: str, sic) -> bool:
+    return sic is not None and any(lo <= sic <= hi for lo, hi in JURISDICTION.get(code[:4], ()))
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z ]", "", (s or "").lower().replace("-", " "))
+
+
+def add_context(con, rows: list[dict]) -> dict:
+    """Mark late filings, and link each trade to the member's committees:
+    'overlap' when a committee they sit on oversees the company's industry,
+    'timing' when that committee also met within days of the trade."""
+    import datetime as _dt
+    for r in rows:
+        if r.get("date") and r.get("filed"):
+            lag = (_dt.date.fromisoformat(r["filed"]) - _dt.date.fromisoformat(r["date"])).days
+            if lag > LATE_DAYS:
+                r["late"] = lag
+    try:
+        people = [dict(zip(("bio", "name", "first", "last", "chamber", "state", "district"), x))
+                  for x in con.execute("SELECT * FROM legislators")]
+        seats = defaultdict(list)
+        for bio, code, name, title in con.execute("SELECT * FROM committee_seats"):
+            seats[bio].append((code, name, title))
+        sic = {t: (s, d) for t, s, d in con.execute("SELECT ticker, sic, sic_desc FROM ticker_industry")}
+        meetings = defaultdict(list)
+        for eid, ch, date, typ, status, title, codes, bills, url in con.execute(
+                "SELECT * FROM committee_meetings WHERE date != ''"):
+            if (status or "").lower() in ("canceled", "cancelled", "postponed"):
+                continue
+            for c in {c[:4] for c in json.loads(codes)}:
+                meetings[c].append({"date": date, "type": typ or "Meeting", "title": title,
+                                    "bills": json.loads(bills), "url": url, "code": c})
+    except sqlite3.OperationalError:
+        return {"members": 0, "meetings": 0}
+    house = {(p["state"], p["district"]): p for p in people if p["chamber"] == "House"}
+    senate = [p for p in people if p["chamber"] == "Senate"]
+
+    def who(r):
+        if r["chamber"] == "House":
+            m = re.match(r"([A-Z]{2})(\d+)", r.get("state") or "")
+            if m:
+                p = house.get((m.group(1), int(m.group(2))))
+                if p and _norm(p["last"]).split()[-1] in _norm(r["member"]):
+                    return p
+            return None
+        name = _norm(r["member"])
+        hits = [p for p in senate if _norm(p["last"]) and re.search(r"\b" + _norm(p["last"]) + r"\b", name)]
+        if len(hits) > 1:
+            hits = [p for p in hits if _norm(p["first"]) and _norm(p["first"]) in name] or hits[:0]
+        return hits[0] if len(hits) == 1 else None
+
+    full_names = {}
+    for bio, lst in seats.items():
+        for code, name, _ in lst:
+            if len(code) == 4:
+                full_names[code] = name
+    cache = {}
+    for r in rows:
+        if r.get("paper") or not r.get("ticker") or r["ticker"] not in sic:
+            continue
+        key = r["mkey"]
+        if key not in cache:
+            cache[key] = who(r)
+        p = cache[key]
+        if not p:
+            continue
+        s, desc = sic[r["ticker"]]
+        mine = {c[:4] for c, _, _ in seats.get(p["bio"], [])}
+        over = sorted(c for c in mine if _covers(c, s))
+        if not over:
+            continue
+        ctx = {"cmte": [full_names.get(c, c) for c in over], "ind": (desc or "").title(), "meet": []}
+        if r.get("date"):
+            td = _dt.date.fromisoformat(r["date"])
+            near = []
+            for c in over:
+                for m in meetings.get(c, ()):
+                    gap = (_dt.date.fromisoformat(m["date"]) - td).days
+                    if -WINDOW_AFTER <= gap <= WINDOW_BEFORE:
+                        near.append({**m, "days": gap, "cmte": full_names.get(c, c)})
+            # Markups and hearings with bills first, then the closest in time.
+            near.sort(key=lambda m: (m["type"] != "Markup", not m["bills"], abs(m["days"])))
+            ctx["meet"] = [{k: m[k] for k in ("date", "type", "title", "bills", "url", "days", "cmte")}
+                           for m in near[:3]]
+        r["ctx"] = ctx
+        r["flag"] = "timing" if ctx["meet"] else "overlap"
+    return {"members": len(people), "meetings": sum(len(v) for v in meetings.values())}
+
+
+# ------------------------------------------------------------ cross-signals
+
+def cross_signals(trades, holders, congress_rows, end: str, days: int = 30) -> list[dict]:
+    """Tickers where two or more independent sources point the same way in
+    the last `days` days: company insiders, 5% holders (13D), and Congress."""
+    import datetime as _dt
+    start = (_dt.date.fromisoformat(end) - _dt.timedelta(days=days)).isoformat()
+    by = defaultdict(lambda: {"buy": defaultdict(list), "sell": defaultdict(list), "issuer": ""})
+    for t in trades:
+        if not t["ticker"] or t["deriv"] or t["suspect"] or not (start <= t["filed"] <= end):
+            continue
+        e = by[t["ticker"]]
+        e["issuer"] = e["issuer"] or t["issuer"]
+        if t["code"] == "P" and t["value"] >= 25_000:
+            e["buy"]["insider"].append({"who": t["person"], "role": t["role"], "value": t["value"], "date": t["filed"]})
+        elif t["code"] == "S" and t["value"] >= 1_000_000 and not t["plan"]:
+            e["sell"]["insider"].append({"who": t["person"], "role": t["role"], "value": t["value"], "date": t["filed"]})
+    for h in holders:
+        if h["ticker"] and "13D" in h["form"] and start <= h["filed"] <= end:
+            e = by[h["ticker"]]
+            e["issuer"] = e["issuer"] or h["issuer"]
+            e["buy"]["fund"].append({"who": h["filer"], "pct": h["pct"], "date": h["filed"], "url": h["url"]})
+    for r in congress_rows:
+        if r.get("paper") or not r.get("ticker") or not (start <= r["filed"] <= end):
+            continue
+        side = "buy" if r["tx"] == "Buy" else "sell" if re.search("Sell|Partial", r["tx"] or "") else None
+        if side:
+            by[r["ticker"]][side]["congress"].append(
+                {"who": r["member"], "mkey": r["mkey"], "lo": r["lo"], "hi": r["hi"], "date": r["filed"],
+                 "flag": r.get("flag")})
+    out = []
+    for tk, e in by.items():
+        for side in ("buy", "sell"):
+            src = {k: v for k, v in e[side].items() if v}
+            if len(src) < 2:
+                continue
+            people = sum(len({x["who"] for x in v}) for v in src.values())
+            out.append({"ticker": tk, "issuer": e["issuer"], "side": side, "sources": src,
+                        "n": len(src), "people": people,
+                        "last": max(x["date"] for v in src.values() for x in v)})
+    out.sort(key=lambda x: x["last"], reverse=True)
+    out.sort(key=lambda x: (-x["n"], -x["people"]))
+    return out[:24]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=65, help="filing days to publish (about 3 months)")
@@ -247,8 +412,12 @@ def main():
     pdays = days[-a.preview_days:]
     since = (_dt.date.today() - _dt.timedelta(days=400)).isoformat()
     congress = load_congress(con, since)
+    ctx_stats = add_context(con, congress["trades"])
+    congress["ctx"] = {**ctx_stats, "late_days": LATE_DAYS,
+                       "window": [WINDOW_BEFORE, WINDOW_AFTER]}
+    signals = cross_signals(trades, holders, congress["trades"], days[-1])
     preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
-               "congress": congress}
+               "congress": congress, "signals": signals}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
         f.write(tpl.replace("/*__DATA__*/null", blob))
@@ -265,7 +434,7 @@ def main():
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as f:
         f.write(head + tpl + "\n</body>\n</html>\n")
     with open(os.path.join(site, "index.json"), "w", encoding="utf-8") as f:
-        json.dump({"days": days, "generated": generated}, f, separators=(",", ":"))
+        json.dump({"days": days, "generated": generated, "signals": signals}, f, separators=(",", ":"))
     with open(os.path.join(site, "congress.json"), "w", encoding="utf-8") as f:
         json.dump({**congress, "generated": generated}, f, separators=(",", ":"))
     for d, payload in by_day.items():
@@ -282,7 +451,10 @@ def main():
             w.writerow([t["filed"], t["date"], t["ticker"], t["issuer"], t["person"], t["role"],
                         t["type"], t["shares"], t["price"], t["value"], t["after"],
                         "yes" if t["plan"] else "", t["url"]])
-    print(f"{len(congress['trades'])} congressional trade rows since {since}")
+    print(f"{len(congress['trades'])} congressional trade rows since {since}; "
+          f"{sum(1 for r in congress['trades'] if r.get('flag') == 'timing')} timing flags, "
+          f"{sum(1 for r in congress['trades'] if r.get('flag') == 'overlap')} industry overlaps, "
+          f"{sum(1 for r in congress['trades'] if r.get('late'))} late filings; {len(signals)} cross-signals")
     print(f"{len(trades)} trades, {len(holders)} ownership filings across {len(days)} days "
           f"({days[0]} to {days[-1]}) -> {site}")
 
