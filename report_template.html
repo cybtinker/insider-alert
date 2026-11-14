@@ -51,7 +51,7 @@ header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20
 .tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
 .tabs a { text-decoration: none; color: var(--muted); font-weight: 600; font-size: 14px; padding: 6px 12px; border-radius: 6px; white-space: nowrap; }
 .tabs a[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
-@media (max-width: 640px) { .tabs { order: 3; width: 100%; } .tabs a { flex: 1; text-align: center; } }
+@media (max-width: 640px) { .tabs { order: 3; width: 100%; overflow-x: auto; } .tabs a { flex: 1 0 auto; text-align: center; padding: 6px 9px; font-size: 13px; } }
 .view { display: grid; gap: 28px; min-width: 0; }
 [hidden] { display: none !important; }
 .view > section { min-width: 0; }
@@ -243,7 +243,7 @@ footer { color: var(--muted); font-size: 12px; }
 <header>
   <div class="wrap">
     <div class="brand">Insider Alert <small id="gen"></small></div>
-    <nav class="tabs" aria-label="Sections"><a href="#insiders" data-view="insiders" aria-current="page">Company insiders</a><a href="#congress" data-view="congress">Congress</a><a href="#network" data-view="network">Network</a></nav>
+    <nav class="tabs" aria-label="Sections"><a href="#insiders" data-view="insiders" aria-current="page">Company insiders</a><a href="#congress" data-view="congress">Congress</a><a href="#network" data-view="network">Network</a><a href="#rules" data-view="rules">Rules</a></nav>
     <div class="actions">
       <button class="btn" id="exp-csv" type="button">Export CSV</button>
       <button class="btn primary" id="exp-pdf" type="button">Export PDF</button>
@@ -474,6 +474,61 @@ footer { color: var(--muted); font-size: 12px; }
     </table></div>
   </section>
   <p class="note">Insiders: SEC Form 4 open-market buys and sales of $10K or more, and Schedule 13D stakes, from the last three months. Congress: STOCK Act trades from the same period. Only companies that both a member and an insider or fund traded appear. Campaign donations: FEC individual contributions in the 2024 and 2026 cycles to a current member's campaign, counted only when the donor's name and employer match the insider and company.</p>
+</div>
+
+<div class="view" id="v-rules" hidden>
+  <section class="controls" aria-label="Rule filters">
+    <div class="ctl">
+      <span class="label">Rule stage</span>
+      <div class="seg" id="r-kind" role="group" aria-label="Rule stage">
+        <button type="button" data-rk="All" aria-pressed="true">All</button>
+        <button type="button" data-rk="Proposed" aria-pressed="false">Proposed</button>
+        <button type="button" data-rk="Final" aria-pressed="false">Final</button>
+      </div>
+    </div>
+    <div class="ctl filters">
+      <label class="label" for="r-sec">Sector fund</label>
+      <select id="r-sec"><option value="">All sectors</option></select>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h1>How sector funds moved after federal rules</h1><span class="sub" id="r-line"></span></div>
+    <p class="caveat">Each significant rule (Executive Order 12866) is matched to the sector funds its agency regulates. A move is the fund's return <b>minus SPY's</b>, from two trading days before publication (rules are posted for inspection a day early) to 1, 5 and 20 trading days after. Averages are shown <b>above or below what that fund normally does</b> over a window of the same length. Bold means the average is statistically clear (t-stat of 2 or more); most are not. Past averages, not a forecast.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Average move after a rule</h2><span class="sub">Each sector and publication day counts once</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Sector fund</th><th class="r">Rule days</th><th class="r">Next day</th><th class="r">5 days</th><th class="r">20 days</th><th class="r">Fell vs SPY, 20 days</th></tr></thead>
+      <tbody id="r-avg"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Recent rules</h2><span class="sub" id="r-rline">Last 120 days, newest first; blank means not enough trading days yet</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Published</th><th>Rule and agency</th><th>Stage</th><th>Fund</th><th class="r">Next day</th><th class="r">5 days</th><th class="r">20 days</th></tr></thead>
+      <tbody id="r-recent"></tbody>
+    </table><div class="more" id="r-more"></div></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Biggest moves after a rule</h2><span class="sub">Largest 20-day moves versus SPY. Other news in the same weeks may explain them.</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Published</th><th>Rule and agency</th><th>Stage</th><th>Fund</th><th class="r">5 days</th><th class="r">20 days</th></tr></thead>
+      <tbody id="r-big"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>By agency</h2><span class="sub">Agencies with at least 8 significant rules</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Agency</th><th>Fund</th><th class="r">Rules</th><th class="r">5 days</th><th class="r">20 days</th></tr></thead>
+      <tbody id="r-ag"></tbody>
+    </table></div>
+  </section>
+  <p class="note">Sources: Federal Register API (significant proposed and final rules) and daily closing prices of SPY and the 11 SPDR sector funds. The agency-to-sector map is a fixed list in rules.py. Not investment advice.</p>
 </div>
 
   <footer id="foot"></footer>
@@ -730,6 +785,8 @@ $("#tr-in").addEventListener("keydown", e => {
 });
 document.addEventListener("pointerdown", e => { if (!e.target.closest(".trackbox")) $("#tr-sugg").hidden = true; });
 document.addEventListener("click", e => {
+  const rk = e.target.closest("[data-rk]"); if (rk) { R.kind = rk.dataset.rk; R.limit = 60; renderRules(); return; }
+  if (e.target.id === "r-showmore") { R.limit += 120; renderRules(); return; }
   const tri = e.target.closest("[data-tri]"); if (tri) { pickTrack(TR.items[+tri.dataset.tri]); return; }
   const op = e.target.closest("[data-open]"); if (op) { openTracked(op.dataset.open, op.dataset.key); return; }
   const un = e.target.closest("[data-unf]"); if (un) {
@@ -1099,6 +1156,66 @@ function congressPdf() {
     body: cRows().map(t => [t.filed, mlabel(t), t.ticker, t.asset, t.tx, amt(t), t.date || "", t.owner]),
     styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] }, columnStyles: { 3: { cellWidth: 220 } } });
   save(`congress-trades-last-${C.days}-days.pdf`, doc.output("arraybuffer"));
+}
+/* ---------- rules: sector fund moves after significant federal rules ---------- */
+const R = { data: null, loading: null, kind: "All", sec: "", limit: 60 };
+function loadRules() {
+  if (R.data) return Promise.resolve(R.data);
+  if (DATA.rules) return Promise.resolve(R.data = DATA.rules);
+  return R.loading ||= fetch("rules.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw 0; return r.json(); })
+    .then(d => R.data = d).catch(() => { R.loading = null; return null; });
+}
+const pct = (x, bold) => x == null ? "" : `<span class="num" style="color:var(${x < 0 ? "--sell" : "--buy"});${bold ? "font-weight:700" : ""}">${x > 0 ? "+" : ""}${(x * 100).toFixed(2)}%</span>`;
+const stat = s => s ? `<span title="${s.n} rule days, t-stat ${s.t ?? "n/a"}">${pct(s.avg, s.t != null && Math.abs(s.t) >= 2)}</span>` : "";
+const agShort = a => (a || []).join("; ");
+function rRecent() {
+  const d = R.data, out = [];
+  for (const r of d.recent) {
+    if (R.kind !== "All" && r.kind !== R.kind) continue;
+    for (const [t, m] of Object.entries(r.moves)) if (!R.sec || t === R.sec) out.push({ ...r, fund: t, m });
+  }
+  return out;
+}
+function renderRules() {
+  const d = R.data;
+  const sel = $("#r-sec");
+  if (d && sel.options.length < 2) sel.insertAdjacentHTML("beforeend", Object.entries(d.sectors).map(([k, v]) => `<option value="${k}">${k} · ${esc(v)}</option>`).join(""));
+  document.querySelectorAll("#r-kind button").forEach(b => b.setAttribute("aria-pressed", b.dataset.rk === R.kind));
+  if (!d) { $("#r-line").textContent = "No rule data yet. It appears after the next daily run."; ["#r-avg", "#r-recent", "#r-big", "#r-ag"].forEach(s => $(s).innerHTML = ""); return; }
+  $("#r-line").textContent = `${d.rules.toLocaleString()} significant rules, ${d.from} to ${d.to}; prices to ${d.prices_to}`;
+  const rows = d.table.filter(r => r.kind === R.kind && (!R.sec || r.sector === R.sec));
+  $("#r-avg").innerHTML = rows.map(r => `<tr><td><b>${r.sector}</b> <span class="sub">${esc(r.name)}</span></td><td class="r num">${r.h[0]?.n ?? 0}</td><td class="r">${stat(r.h[0])}</td><td class="r">${stat(r.h[1])}</td><td class="r">${stat(r.h[2])}</td><td class="r num">${r.h[2] ? Math.round(r.h[2].down * 100) + "%" : ""}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="sub">No rules for this choice.</td></tr>`;
+  const rec = rRecent();
+  $("#r-recent").innerHTML = rec.slice(0, R.limit).map(r => `<tr><td class="num">${r.date}</td><td style="min-width:240px"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a><div class="sub">${esc(agShort(r.agencies))}</div></td><td>${r.kind}</td><td><b>${r.fund}</b></td><td class="r">${pct(r.m[0])}</td><td class="r">${pct(r.m[1])}</td><td class="r">${pct(r.m[2])}</td></tr>`).join("")
+    || `<tr><td colspan="7" class="sub">No recent rules for this choice.</td></tr>`;
+  $("#r-more").innerHTML = rec.length > R.limit ? `<button class="btn" type="button" id="r-showmore">Show more (${rec.length - R.limit} left)</button>` : "";
+  $("#r-big").innerHTML = d.biggest.filter(r => (R.kind === "All" || r.kind === R.kind) && (!R.sec || r.sector === R.sec)).slice(0, 20)
+    .map(r => `<tr><td class="num">${r.date}</td><td style="min-width:240px"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.more ? ` <span class="sub">+${r.more} more that day</span>` : ""}<div class="sub">${esc(agShort(r.agencies))}</div></td><td>${r.kind}</td><td><b>${r.sector}</b></td><td class="r">${pct(r.moves[1])}</td><td class="r">${pct(r.moves[2])}</td></tr>`).join("");
+  $("#r-ag").innerHTML = d.agencies.filter(r => !R.sec || r.sector === R.sec)
+    .map(r => `<tr><td>${esc(r.agency)}</td><td><b>${r.sector}</b></td><td class="r num">${r.h5?.n ?? 0}</td><td class="r">${stat(r.h5)}</td><td class="r">${stat(r.h20)}</td></tr>`).join("");
+}
+function rulesCsv() {
+  const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const f = x => x == null ? "" : (x * 100).toFixed(3);
+  return ["published,agencies,rule,stage,fund,excess_1d_pct,excess_5d_pct,excess_20d_pct,federal_register_link"]
+    .concat(rRecent().map(r => [r.date, r.agencies.join("; "), r.title, r.kind, r.fund, f(r.m[0]), f(r.m[1]), f(r.m[2]), r.url].map(q).join(","))).join("\n");
+}
+function rulesPdf() {
+  if (!window.jspdf) { toast("The PDF tool didn't load. Check your connection and try again."); return; }
+  if (!R.data) { toast("No rule data yet."); return; }
+  const { jsPDF } = window.jspdf, doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  const f = x => x == null ? "" : (x > 0 ? "+" : "") + (x * 100).toFixed(2) + "%";
+  doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Insider Alert · Rules", 40, 46);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(90);
+  doc.text(`Sector fund return minus SPY after significant federal rules. ${$("#r-line").textContent}. Not investment advice.`, 40, 64);
+  doc.autoTable({ startY: 80, head: [["Fund", "Stage", "Rule days", "Next day", "5 days", "20 days"]],
+    body: R.data.table.filter(r => r.kind === R.kind && (!R.sec || r.sector === R.sec)).map(r => [r.sector + " " + r.name, r.kind, r.h[0]?.n ?? 0, f(r.h[0]?.avg), f(r.h[1]?.avg), f(r.h[2]?.avg)]),
+    styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] } });
+  doc.autoTable({ head: [["Published", "Agency", "Rule", "Stage", "Fund", "Next day", "5 days", "20 days"]],
+    body: rRecent().map(r => [r.date, r.agencies.join("; "), r.title, r.kind, r.fund, f(r.m[0]), f(r.m[1]), f(r.m[2])]),
+    styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [24, 32, 43] }, columnStyles: { 2: { cellWidth: 260 } } });
+  save("sector-moves-after-rules.pdf", doc.output("arraybuffer"));
 }
 /* ---------- network: people and companies linked by public filings ---------- */
 const N = { data: null, loading: null, mode: "all", side: "all", cmte: false, mine: false, focus: null, limit: 25, sim: null, zoom: null, g: null, shown: null };
@@ -1516,10 +1633,11 @@ function findNode(text) {
     || all.find(n => n.kind === "company" && n.label.toLowerCase() === q)
     || all.find(n => nlabel(n).toLowerCase().includes(q) || (n.name || "").toLowerCase().includes(q));
 }
-function view() { return location.hash === "#congress" ? "congress" : location.hash === "#network" ? "network" : "insiders"; }
+function view() { return location.hash === "#congress" ? "congress" : location.hash === "#network" ? "network" : location.hash === "#rules" ? "rules" : "insiders"; }
 function showView() {
   const v = view();
-  $("#v-insiders").hidden = v !== "insiders"; $("#v-congress").hidden = v !== "congress"; $("#v-network").hidden = v !== "network";
+  $("#v-insiders").hidden = v !== "insiders"; $("#v-congress").hidden = v !== "congress"; $("#v-network").hidden = v !== "network"; $("#v-rules").hidden = v !== "rules";
+  if (v === "rules") { renderRules(); loadRules().then(() => renderRules()); }
   if (v === "network") { loadNetwork().then(() => renderNetwork()); loadCongress(); }
   document.querySelectorAll("[data-view]").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   if (v === "congress") { renderCongress(); Promise.all([loadCongress(), loadNetwork()]).then(() => renderCongress()); }
@@ -1567,8 +1685,9 @@ $("#d-to").addEventListener("change", e => { if (e.target.value) { S.to = snap(e
 function snap(d, dir) { const ds = DATA.days; if (dir > 0) return ds.find(x => x >= d) || ds[ds.length - 1]; for (let i = ds.length - 1; i >= 0; i--) if (ds[i] <= d) return ds[i]; return ds[0]; }
 $("#c-q").addEventListener("input", e => { C.q = e.target.value; C.limit = 150; renderCongress(); });
 $("#c-mine").addEventListener("change", e => { C.mine = e.target.checked; renderCongress(); });
-$("#exp-csv").addEventListener("click", () => view() === "network" ? save("congress-insider-overlaps.csv", overlapCsv()) : view() === "congress" ? save(`congress-trades-last-${C.days}-days.csv`, congressCsv(cRows())) : exportCsv());
-$("#exp-pdf").addEventListener("click", () => view() === "network" ? overlapPdf() : view() === "congress" ? congressPdf() : exportPdf());
+$("#r-sec").addEventListener("change", e => { R.sec = e.target.value; R.limit = 60; renderRules(); });
+$("#exp-csv").addEventListener("click", () => view() === "rules" ? save("sector-moves-after-rules.csv", rulesCsv()) : view() === "network" ? save("congress-insider-overlaps.csv", overlapCsv()) : view() === "congress" ? save(`congress-trades-last-${C.days}-days.csv`, congressCsv(cRows())) : exportCsv());
+$("#exp-pdf").addEventListener("click", () => view() === "rules" ? rulesPdf() : view() === "network" ? overlapPdf() : view() === "congress" ? congressPdf() : exportPdf());
 $("#n-q").addEventListener("change", e => { const n = findNode(e.target.value); $("#n-qnote").textContent = n || !e.target.value ? "Pick a name to highlight everyone connected to it. Click empty space to clear." : "No one by that name in the current view."; if (n) setFocus(n.id); else if (!e.target.value) setFocus(null); });
 $("#n-cmte").addEventListener("change", e => { N.cmte = e.target.checked; renderNetwork(); });
 $("#n-mine").addEventListener("change", e => { N.mine = e.target.checked; renderNetwork(); });

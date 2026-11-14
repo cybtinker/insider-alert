@@ -68,6 +68,12 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           INSIDER_DB: ${{ github.workspace }}/insider.db
         run: python fec.py
+      - name: Collect significant federal rules and sector fund prices
+        # The Rules tab is extra context: never let this step stop the report.
+        continue-on-error: true
+        env:
+          INSIDER_DB: ${{ github.workspace }}/insider.db
+        run: python rules.py --years 5
       - name: Save database
         if: always()
         uses: actions/cache/save@v4
