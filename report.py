@@ -626,9 +626,15 @@ def main():
                        "window": [WINDOW_BEFORE, WINDOW_AFTER]}
     signals = cross_signals(trades, holders, congress["trades"], days[-1])
     network = build_network(trades, holders, congress["trades"], load_donations(con))
+    try:
+        import rules
+        rule_study = rules.study(con)
+    except Exception as e:  # the Rules tab is extra: never let it stop the report
+        print(f"Rules study skipped: {e}")
+        rule_study = None
     preview = {"days": pdays, "generated": generated, "byDay": {d: by_day[d] for d in pdays},
                "names": name_index([t for t in trades if t["filed"] in pdays], [h for h in holders if h["filed"] in pdays]),
-               "congress": congress, "signals": signals, "network": network}
+               "congress": congress, "signals": signals, "network": network, "rules": rule_study}
     blob = json.dumps(preview, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(OUT, "insider-alert.html"), "w", encoding="utf-8") as f:
         f.write(tpl.replace("/*__DATA__*/null", blob))
@@ -650,6 +656,9 @@ def main():
         json.dump({**congress, "generated": generated}, f, separators=(",", ":"))
     with open(os.path.join(site, "network.json"), "w", encoding="utf-8") as f:
         json.dump({**network, "generated": generated}, f, separators=(",", ":"))
+    if rule_study:
+        with open(os.path.join(site, "rules.json"), "w", encoding="utf-8") as f:
+            json.dump({**rule_study, "generated": generated}, f, separators=(",", ":"))
     with open(os.path.join(site, "names.json"), "w", encoding="utf-8") as f:
         json.dump(name_index(trades, holders), f, separators=(",", ":"))
     for d, payload in by_day.items():
