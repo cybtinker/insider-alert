@@ -149,11 +149,19 @@ def load_day_index(day: dt.date) -> list[dict] | None:
     url = (f"{ARCHIVES}edgar/daily-index/{day.year}/QTR{quarter(day)}/"
            f"form.{day:%Y%m%d}.idx")
     try:
-        raw = fetch(url, retries=2)
+        raw = fetch(url, retries=3)
     except HTTPError as e:
-        if e.code == 403:  # EDGAR answers 403 for an index that isn't published yet
+        # 403: EDGAR's answer for an index that isn't published yet.
+        # 5xx: EDGAR is briefly down; the day stays unloaded and the next run retries it.
+        if e.code == 403 or e.code >= 500:
+            if e.code != 403:
+                print(f"{day}: EDGAR returned {e.code} for the daily index, will retry next run",
+                      file=sys.stderr)
             return None
         raise
+    except (URLError, ConnectionError, TimeoutError) as e:
+        print(f"{day}: could not reach EDGAR ({e}), will retry next run", file=sys.stderr)
+        return None
     if raw is None:
         return None  # weekend / holiday
     rows, seen = [], set()
@@ -401,9 +409,18 @@ def main():
     else:
         today = dt.date.today()
         days = [today - dt.timedelta(days=i) for i in range(a.days, -1, -1)]
+    failed = []
     for d in days:
         if d.weekday() < 5:
-            collect_day(con, d, tickers, a.force)
+            try:
+                collect_day(con, d, tickers, a.force)
+            except Exception as e:  # one bad day must not stop the rest of the run
+                con.rollback()
+                print(f"{d}: skipped after error: {e!r}", file=sys.stderr)
+                failed.append(d)
+    if failed:
+        print(f"Warning: {len(failed)} day(s) skipped and will be retried next run: "
+              + ", ".join(map(str, failed)), file=sys.stderr)
 
 
 if __name__ == "__main__":
